@@ -35,6 +35,9 @@ export class TopBarView {
   private readonly purityText: TextBlock;
   private readonly resourceTexts: Record<ResourceKey, TextBlock>;
   private readonly pillBoxes: Rectangle[] = [];
+  private readonly toastPill: Rectangle;
+  private readonly toastText: TextBlock;
+  private toastRemaining = 0;
   private onCyclePhase: (() => void) | null = null;
   private currentTrackWidth = TopBarView.TRACK_WIDTH_DESKTOP;
 
@@ -61,8 +64,46 @@ export class TopBarView {
     this.purityText = purity.percent;
     this.metricsRow.addControl(purity.container);
     this.resourceTexts = this._createResourceStrip();
+    const toast = this._createToastPill();
+    this.toastPill = toast.pill;
+    this.toastText = toast.text;
     adt.addControl(this.statusRow);
     adt.addControl(this.metricsRow);
+    adt.addControl(this.toastPill);
+  }
+
+  /**
+   * Displays a temporary non-blocking toast message below the top bar.
+   *
+   * @param message Short feedback string.
+   * @param color Optional border/text accent hex. Defaults to `HUD_THEME.accentAmber`.
+   * @example
+   * topBar.showToast('+2 Wood');
+   */
+  public showToast(message: string, color = HUD_THEME.accentAmber): void {
+    this.toastText.text = message;
+    this.toastText.color = color;
+    this.toastPill.color = color;
+    this.toastPill.alpha = 1;
+    this.toastPill.isVisible = true;
+    this.toastRemaining = 1.8;
+  }
+
+  /**
+   * Updates toast auto-fade timer once per frame.
+   *
+   * @param deltaSeconds Frame delta in seconds.
+   * @example
+   * topBar.tick(dt);
+   */
+  public tick(deltaSeconds: number): void {
+    if (!this.toastPill.isVisible) return;
+    this.toastRemaining -= Math.max(0, deltaSeconds);
+    if (this.toastRemaining <= 0) {
+      this.toastPill.isVisible = false;
+      return;
+    }
+    this.toastPill.alpha = Math.min(1, this.toastRemaining * 2);
   }
 
   /**
@@ -93,6 +134,9 @@ export class TopBarView {
     this.metricsRow.topInPixels = metrics.isCompact ? metrics.edgePadTop + 40 : metrics.edgePadTop;
     this.currentTrackWidth = metrics.isCompact ? TopBarView.TRACK_WIDTH_COMPACT : TopBarView.TRACK_WIDTH_DESKTOP;
     this.purityTrack.widthInPixels = this.currentTrackWidth;
+    this.toastPill.topInPixels = metrics.isCompact ? metrics.edgePadTop + 78 : metrics.edgePadTop + 42;
+    this.toastPill.widthInPixels = Math.min(280, metrics.viewportWidth - 32);
+    this.toastText.fontSizeInPixels = metrics.fontSizeMd;
     this._applyFontAndWidths(metrics);
   }
 
@@ -282,6 +326,16 @@ export class TopBarView {
       tb.fontSizeInPixels = size;
       tb.widthInPixels = resWidth;
     }
+  }
+
+  private _createToastPill(): { pill: Rectangle; text: TextBlock } {
+    const pill = this._makePillRect('hud-toast', 240, HUD_THEME.borderAccent, HUD_THEME.surfaceCard);
+    pill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    pill.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    pill.isVisible = false;
+    const text = this._makeLabel('hud-toast-text', '', HUD_THEME.accentAmber);
+    pill.addControl(text);
+    return { pill, text };
   }
 
   private _updateResourceCounts(inv: Record<ResourceKey, number>): void {

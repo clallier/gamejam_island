@@ -85,26 +85,35 @@ describe('BabylonHud (@babylonjs/gui)', () => {
     expect((hud.getControlByName('res-wood') as TextBlock).text).toBe('🪵14');
   });
 
-  it('toggles inspect button state and cutaway dollhouse card visibility', () => {
+  it('toggles contextual action button, plant button, dollhouse card, and toast fade', () => {
     const { hud } = createHudHarness();
     const engineerPlot = DOLLHOUSE_PLOTS[0]!;
 
-    hud.updateDollhouseContext(null, null);
+    hud.updateInteractionContext(null, null, false);
     const inspectBtn = hud.getControlByName('btn-inspect') as Button;
+    const plantBtn = hud.getControlByName('btn-plant') as Button;
     const card = hud.getControlByName('dollhouse-card') as Rectangle;
     const cardStack = hud.getControlByName('dollhouse-card-stack') as StackPanel;
     expect(inspectBtn.isEnabled).toBe(false);
+    expect(plantBtn.alpha).toBeLessThan(0.8);
     expect(card.isVisible).toBe(false);
     expect(cardStack.widthInPixels).toBeLessThan(card.widthInPixels);
 
-    hud.updateDollhouseContext(engineerPlot, null);
+    hud.updateInteractionContext({ type: 'resource', id: 'n1', x: 24, kind: 'tree_pine', icon: '🪓', label: 'Chop' }, null, true);
     expect(inspectBtn.isEnabled).toBe(true);
-    expect((hud.getControlByName('btn-inspect-label') as TextBlock).text).toBe('Pip');
+    expect(plantBtn.alpha).toBe(1);
+    expect((hud.getControlByName('btn-inspect-label') as TextBlock).text).toBe('Chop');
 
-    hud.updateDollhouseContext(engineerPlot, engineerPlot);
+    hud.updateInteractionContext({ type: 'dollhouse', plot: engineerPlot, icon: '🏠', label: engineerPlot.npcName }, engineerPlot, false);
     expect(card.isVisible).toBe(true);
     expect((hud.getControlByName('card-room-title') as TextBlock).text).toBe('Cozy Workshop');
     expect((hud.getControlByName('btn-inspect-label') as TextBlock).text).toBe('Exit');
+
+    hud.showToast('+2 Wood');
+    const toast = hud.getControlByName('hud-toast') as Rectangle;
+    expect(toast.isVisible).toBe(true);
+    hud.tick(2.2);
+    expect(toast.isVisible).toBe(false);
   });
 
   it('triggers callbacks and InputController actions from GUI pointer observables', () => {
@@ -117,16 +126,19 @@ describe('BabylonHud (@babylonjs/gui)', () => {
     const closeBtn = hud.getControlByName('btn-close-card') as Button;
     const leftBtn = hud.getControlByName('btn-left') as Button;
     const tossBtn = hud.getControlByName('btn-toss') as Button;
+    const plantBtn = hud.getControlByName('btn-plant') as Button;
 
     cycleBtn.onPointerClickObservable.notifyObservers(null as never);
     closeBtn.onPointerClickObservable.notifyObservers(null as never);
     leftBtn.onPointerDownObservable.notifyObservers(null as never);
     tossBtn.onPointerDownObservable.notifyObservers(null as never);
+    plantBtn.onPointerDownObservable.notifyObservers(null as never);
 
     const snap = input.consumeSnapshot();
     expect(onCycle).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(snap.moveX).toBe(-1);
     expect(snap.tossPressed).toBe(true);
+    expect(snap.plantPressed).toBe(true);
   });
 });

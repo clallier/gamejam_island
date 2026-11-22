@@ -44,7 +44,9 @@ export type PartId =
   | 'tree_broadleaf'
   | 'rock_boulder'
   | 'mound_corruption'
-  | 'portal_monolith';
+  | 'portal_monolith'
+  | 'wildflower_patch'
+  | 'purifier_flower';
 
 export type PaletteKey =
   | 'hero'

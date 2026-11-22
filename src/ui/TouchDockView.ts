@@ -5,6 +5,7 @@ import { StackPanel } from '@babylonjs/gui/2D/controls/stackPanel.js';
 import { TextBlock } from '@babylonjs/gui/2D/controls/textBlock.js';
 import type { AdvancedDynamicTexture } from '@babylonjs/gui/2D/advancedDynamicTexture.js';
 import type { HoldAction, InputController, TapAction } from '../engine/InputController.ts';
+import type { InteractionTarget } from '../systems/InteractionResolver.ts';
 import type { DollhousePlot } from '../world/constants.ts';
 import { HUD_THEME } from './constants.ts';
 import type { HudLayoutMetrics } from './HudLayout.ts';
@@ -26,6 +27,7 @@ export class TouchDockView {
   private readonly leftBtn: Button;
   private readonly rightBtn: Button;
   private readonly tossBtn: ActionButtonParts;
+  private readonly plantBtn: ActionButtonParts;
   private readonly inspectBtn: ActionButtonParts;
   private readonly jumpBtn: ActionButtonParts;
   private readonly promptPill: Rectangle;
@@ -45,11 +47,12 @@ export class TouchDockView {
     this.movePanel.addControl(this.leftBtn);
     this.movePanel.addControl(this.rightBtn);
     this.tossBtn = this._createActionButton('btn-toss', '🎯', 'Toss');
-    this.inspectBtn = this._createActionButton('btn-inspect', '🏠', 'Room');
+    this.plantBtn = this._createActionButton('btn-plant', '🌱', 'Plant');
+    this.inspectBtn = this._createActionButton('btn-inspect', '🏠', 'Act');
     this.jumpBtn = this._createActionButton('btn-jump', '⬆', 'Jump');
-    this.actionsPanel.addControl(this.tossBtn.button);
-    this.actionsPanel.addControl(this.inspectBtn.button);
-    this.actionsPanel.addControl(this.jumpBtn.button);
+    [this.tossBtn, this.plantBtn, this.inspectBtn, this.jumpBtn].forEach((b) =>
+      this.actionsPanel.addControl(b.button),
+    );
     this.promptPill = this._createPromptPill();
     adt.addControl(this.movePanel);
     adt.addControl(this.promptPill);
@@ -67,6 +70,7 @@ export class TouchDockView {
     this._wireHold(this.leftBtn, 'left', input);
     this._wireHold(this.rightBtn, 'right', input);
     this._wireTap(this.tossBtn.button, 'toss', input);
+    this._wireTap(this.plantBtn.button, 'plant', input);
     this._wireTap(this.inspectBtn.button, 'interact', input);
     this._wireTap(this.jumpBtn.button, 'jump', input);
   }
@@ -85,7 +89,8 @@ export class TouchDockView {
       btn.widthInPixels = metrics.padButtonSize;
       btn.heightInPixels = metrics.padButtonSize;
     });
-    [this.tossBtn, this.inspectBtn, this.jumpBtn].forEach((parts) => {
+    this.tossBtn.button.isVisible = !metrics.isCompact;
+    [this.tossBtn, this.plantBtn, this.inspectBtn, this.jumpBtn].forEach((parts) => {
       this._styleActionButton(parts, metrics);
     });
     this.promptPill.isVisible = metrics.showDesktopPrompt;
@@ -93,18 +98,20 @@ export class TouchDockView {
   }
 
   /**
-   * Updates contextual inspect button state, border glow, and label.
+   * Updates contextual interact button and purifying plant button appearance.
    *
-   * @param nearbyPlot Nearby `DollhousePlot` or `null`.
+   * @param target Nearest resolved `InteractionTarget` or `null`.
    * @param focusedPlot Active zoomed `DollhousePlot` or `null`.
+   * @param canPlant Whether planting a purifying bloom is currently valid.
    * @example
-   * dock.updateInspectButton(nearby, focused);
+   * dock.updateInteractionContext(target, focused, true);
    */
-  public updateInspectButton(
-    nearbyPlot: DollhousePlot | null,
+  public updateInteractionContext(
+    target: InteractionTarget | null,
     focusedPlot: DollhousePlot | null,
+    canPlant: boolean,
   ): void {
-    const enabled = Boolean(nearbyPlot || focusedPlot);
+    const enabled = Boolean(target || focusedPlot);
     const btn = this.inspectBtn.button;
     btn.isEnabled = enabled;
     btn.alpha = enabled ? 1 : 0.48;
@@ -112,7 +119,17 @@ export class TouchDockView {
     btn.background = enabled ? HUD_THEME.surfaceButton : HUD_THEME.surfaceDisabled;
     this.inspectBtn.icon.color = enabled ? HUD_THEME.accentAmber : HUD_THEME.textMuted;
     this.inspectBtn.label.color = enabled ? HUD_THEME.accentAmber : HUD_THEME.textMuted;
-    this.inspectBtn.label.text = focusedPlot ? 'Exit' : nearbyPlot ? nearbyPlot.npcName : 'Room';
+    this.inspectBtn.icon.text = focusedPlot ? '🏠' : (target?.icon ?? '🏠');
+    this.inspectBtn.label.text = focusedPlot ? 'Exit' : (target?.label ?? 'Act');
+    this._stylePlantButton(canPlant);
+  }
+
+  private _stylePlantButton(canPlant: boolean): void {
+    this.plantBtn.button.alpha = canPlant ? 1 : 0.65;
+    this.plantBtn.button.color = canPlant ? HUD_THEME.accentSage : HUD_THEME.borderWarm;
+    this.plantBtn.button.background = canPlant ? HUD_THEME.surfaceButton : HUD_THEME.surfaceDisabled;
+    this.plantBtn.icon.color = canPlant ? HUD_THEME.accentSage : HUD_THEME.textMuted;
+    this.plantBtn.label.color = canPlant ? HUD_THEME.textPrimary : HUD_THEME.textMuted;
   }
 
   private _createDockPanel(name: string, align: number): StackPanel {
@@ -166,7 +183,7 @@ export class TouchDockView {
 
   private _createPromptPill(): Rectangle {
     const pill = new Rectangle('dock-prompt');
-    pill.widthInPixels = 336;
+    pill.widthInPixels = 368;
     pill.heightInPixels = 32;
     pill.cornerRadius = 16;
     pill.thickness = 1;
@@ -175,7 +192,7 @@ export class TouchDockView {
     pill.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
     pill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
     pill.isHitTestVisible = false;
-    const text = new TextBlock('dock-prompt-text', 'A/D or ←/→ Move · Space Jump · E Room · Shift Toss');
+    const text = new TextBlock('dock-prompt-text', 'A/D Move · Space Jump · E Act/Room · P Plant · Shift Toss');
     text.color = HUD_THEME.textMuted;
     text.fontFamily = HUD_THEME.fontFamily;
     text.fontSizeInPixels = 12;

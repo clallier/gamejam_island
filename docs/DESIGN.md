@@ -47,7 +47,7 @@ Hanging out with a villager smoothly zooms the 3/4 camera into their open-front 
 
 ## 4. Visual & Technical Architecture
 - **Rendering:** Babylon.js v9 (`@babylonjs/core`) with warm clay/wood stylized materials, subtle rim Fresnel shading by day, and a `GlowLayer` + warm interior `PointLight`s vs. neon-purple corruption emissives by night.
-- **Physics:** Havok WASM (`@babylonjs/havok`) driving the 1D player capsule (`Z`-locked, zero angular inertia), road collision floor, and dynamic interactive physics props.
+- **Physics & ECS:** Havok WASM (`@babylonjs/havok`) driving the 1D player capsule (`Z`-locked, zero angular inertia), road collision floor, and dynamic interactive physics props, paired with **bitECS v0.4 (`bitecs`)** Structure-of-Arrays typed buffers (`src/ecs/`) for zero-allocation interaction queries, hit wobbles, and mesh-pooled loot drops.
 - **Modular 3D Assembly:** Declarative blueprints (`ModularBlueprint`) attach parts to named sockets (`root`, `torso`, `head`, `hat`, `hand_right`, `roof`, `interior_*`) through an IoC `IMeshPartProvider` interface:
   - `ProceduralPartProvider` (Milestone 1 kitbashed low-poly geometry)
   - `GltfPartProvider` (`@babylonjs/loaders` adapter for `.glb`/`.gltf` swaps with procedural fallback)

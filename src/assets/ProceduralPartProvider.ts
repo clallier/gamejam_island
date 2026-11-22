@@ -93,6 +93,8 @@ export class ProceduralPartProvider implements IMeshPartProvider {
       rock_boulder: (r, p, k) => this._buildBoulder(r, p, k),
       mound_corruption: (r, p, k) => this._buildCorruptionMound(r, p, k),
       portal_monolith: (r, p, k) => this._buildPortal(r, p, k),
+      wildflower_patch: (r, p, k) => this._buildWildflowerPatch(r, p, k),
+      purifier_flower: (r, p, k) => this._buildPurifierFlower(r, p, k),
     };
   }
 
@@ -269,6 +271,24 @@ export class ProceduralPartProvider implements IMeshPartProvider {
     this._box(r, `${p}-lintel`, 3.5, 0.7, 0.82, [0, 4.25, 0], 'corruptionDark');
     const gate = this._cyl(r, `${p}-gate`, 0.28, 2.2, 2.2, [0, 2.15, 0], k);
     gate.rotation.x = Math.PI / 2;
+  }
+
+  private _buildWildflowerPatch(r: TransformNode, p: string, k: PaletteKey): void {
+    const tuft = this._sphere(r, `${p}-tuft`, 0.9, [0, 0.12, 0], 'foliageLeaf');
+    tuft.scaling.set(1.2, 0.35, 0.9);
+    this._sphere(r, `${p}-bloom-a`, 0.34, [-0.26, 0.36, -0.05], k);
+    this._sphere(r, `${p}-bloom-b`, 0.3, [0.22, 0.4, 0.08], 'hero');
+    this._sphere(r, `${p}-bloom-c`, 0.28, [0.02, 0.45, -0.15], 'merchant');
+  }
+
+  private _buildPurifierFlower(r: TransformNode, p: string, k: PaletteKey): void {
+    this._cyl(r, `${p}-stem`, 1.05, 0.1, 0.14, [0, 0.52, 0], 'foliagePine');
+    const leafL = this._box(r, `${p}-leaf-l`, 0.42, 0.08, 0.22, [-0.22, 0.42, 0], 'foliageLeaf');
+    const leafR = this._box(r, `${p}-leaf-r`, 0.42, 0.08, 0.22, [0.22, 0.52, 0], 'foliageLeaf');
+    leafL.rotation.z = 0.35;
+    leafR.rotation.z = -0.35;
+    this._sphere(r, `${p}-lantern-core`, 0.56, [0, 1.15, 0], k);
+    this._cyl(r, `${p}-halo`, 0.1, 0.84, 0.35, [0, 1.0, 0], 'clayCream');
   }
 
   private _box(

@@ -12,7 +12,9 @@ export type WorldPropKind =
   | 'tree_broadleaf'
   | 'boulder'
   | 'mound'
-  | 'portal';
+  | 'portal'
+  | 'wildflower'
+  | 'purifier_flower';
 
 interface NpcSpec {
   readonly hat: PartId;
@@ -153,6 +155,8 @@ export class BlueprintRegistry {
       boulder: { socket: 'root', partId: 'rock_boulder', paletteKey: 'stoneWarm' },
       mound: { socket: 'root', partId: 'mound_corruption', paletteKey: 'corruptionNeon' },
       portal: { socket: 'root', partId: 'portal_monolith', paletteKey: 'corruptionNeon' },
+      wildflower: { socket: 'root', partId: 'wildflower_patch', paletteKey: 'amberGlow' },
+      purifier_flower: { socket: 'root', partId: 'purifier_flower', paletteKey: 'amberGlow' },
     };
     return { id: `prop-${kind}`, sockets: ['root'], attachments: [map[kind]] };
   }

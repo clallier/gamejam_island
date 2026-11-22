@@ -12,13 +12,15 @@ import type { ModularAssemblyFactory } from '../assets/ModularAssemblyFactory.ts
 import type { StylizedMaterialFactory } from '../assets/StylizedMaterialFactory.ts';
 import type { DayNightRig } from '../engine/DayNightRig.ts';
 import type { PhysicsWorld } from '../engine/PhysicsWorld.ts';
+import type { IslandEcsWorld } from '../ecs/IslandEcsWorld.ts';
 import { NpcStandee } from '../entities/NpcStandee.ts';
+import type { PlantedFlora } from '../systems/PlantingSystem.ts';
 import { PORTAL_X } from '../world/constants.ts';
 import type { CorruptionField } from '../world/CorruptionField.ts';
 import type { IslandStrip } from '../world/IslandStrip.ts';
+import type { ResourceNodeCatalog } from '../world/ResourceNodeCatalog.ts';
 import {
   DOLLHOUSE_Z,
-  FLORA_PLACEMENTS,
   LILYPAD_XS,
   ROAD_COLLIDER_HEIGHT,
   ROAD_DEPTH,
@@ -34,22 +36,34 @@ import {
   WATER_Y,
 } from './constants.ts';
 
+interface NodeVisualEntry {
+  readonly root: TransformNode;
+  readonly baseScale: number;
+  depleted: boolean;
+}
+
 /**
  * Constructs and animates the 3D 1D island diorama: terrain slab, road collider,
- * shoreline water, cutaway dollhouses, NPC standees, flora, corruption borders,
- * and interactive Havok road props.
+ * shoreline water, cutaway dollhouses, NPC standees, harvestable flora,
+ * scrubbable pollution mounds, purifying blooms, and Havok road props.
  */
 export class IslandEnvironment {
+  private static readonly WOBBLE_DURATION = 0.28;
+
   private readonly scene: Scene;
   private readonly assembly: ModularAssemblyFactory;
   private readonly blueprints: BlueprintRegistry;
   private readonly materials: StylizedMaterialFactory;
   private readonly physics: PhysicsWorld;
   private readonly lighting: DayNightRig;
+  private readonly ecs: IslandEcsWorld;
   private readonly npcStandees: NpcStandee[] = [];
   private readonly lilyPads: Mesh[] = [];
   private readonly roadCrates: Mesh[] = [];
+  private readonly nodeEntries = new Map<string, NodeVisualEntry>();
+  private readonly moundEntries = new Map<string, TransformNode>();
   private readonly corruptionBorders: { left: TransformNode; right: TransformNode };
+  private readonly unsubWobbleRemove: () => void;
   private shrineNode: TransformNode | null = null;
 
   /**
@@ -61,10 +75,12 @@ export class IslandEnvironment {
    * @param materials Shared stylized material factory.
    * @param physics Initialized Havok physics facade.
    * @param lighting Day/Night lighting and shadow manager.
+   * @param ecs Shared bitECS world driving hit wobbles.
    * @param strip 1D island topology model.
    * @param corruption Initial corruption state.
+   * @param resourceNodes Harvestable frontier resource catalog.
    * @example
-   * const env = new IslandEnvironment(scene, assembly, blueprints, materials, physics, lighting, strip, corruption);
+   * const env = new IslandEnvironment(scene, assembly, blueprints, materials, physics, lighting, ecs, strip, corruption, nodes);
    */
   public constructor(
     scene: Scene,
@@ -73,8 +89,10 @@ export class IslandEnvironment {
     materials: StylizedMaterialFactory,
     physics: PhysicsWorld,
     lighting: DayNightRig,
+    ecs: IslandEcsWorld,
     strip: IslandStrip,
     corruption: CorruptionField,
+    resourceNodes: ResourceNodeCatalog,
   ) {
     this.scene = scene;
     this.assembly = assembly;
@@ -82,17 +100,31 @@ export class IslandEnvironment {
     this.materials = materials;
     this.physics = physics;
     this.lighting = lighting;
+    this.ecs = ecs;
     this._buildTerrainAndWater();
     this._buildShrine();
     this._buildDollhousesAndNpcs(strip);
     this._buildDefenseSlots(strip);
-    this._buildFloraAndCorruption(corruption);
+    this._buildFloraAndCorruption(resourceNodes, corruption);
     this._buildRoadPhysicsProps();
     this.corruptionBorders = this._buildBorderMarkers(corruption);
+    const { Wobble } = this.ecs.getComponents();
+    this.unsubWobbleRemove = this.ecs.observeRemoved([Wobble], (eid) => this._resetWobble(eid));
   }
 
   /**
-   * Animates lily pads, NPC standees, Town Heart shrine, and mist border posts.
+   * Unsubscribes ECS wobble observers owned by the environment.
+   *
+   * @throws Error Never thrown during disposal.
+   * @example
+   * env.dispose();
+   */
+  public dispose(): void {
+    this.unsubWobbleRemove();
+  }
+
+  /**
+   * Animates lily pads, NPC standees, hit wobbles, shrine, and mist border posts.
    *
    * @param elapsedSeconds Total elapsed simulation seconds.
    * @param deltaSeconds Frame delta in seconds.
@@ -114,8 +146,79 @@ export class IslandEnvironment {
     if (this.shrineNode) {
       this.shrineNode.rotation.y = elapsedSeconds * 0.4;
     }
+    this._updateWobbles(deltaSeconds);
     this._containRoadCrates();
     this._syncCorruptionBorders(elapsedSeconds, corruption);
+  }
+
+  /**
+   * Plays a snappy wobble on a harvested node and shrinks it when depleted.
+   *
+   * @param id Target node identifier.
+   * @param depleted Whether the node reached 0 HP.
+   * @example
+   * env.animateNodeHit('node-right-leaf-inner', true);
+   */
+  public animateNodeHit(id: string, depleted: boolean): void {
+    const entry = this.nodeEntries.get(id);
+    if (!entry) return;
+    entry.depleted = depleted;
+    this.ecs.triggerWobble(id, IslandEnvironment.WOBBLE_DURATION);
+    if (depleted) {
+      entry.root.scaling.set(entry.baseScale * 0.55, entry.baseScale * 0.22, entry.baseScale * 0.55);
+    }
+  }
+
+  /**
+   * Restores depleted resource node meshes back to full scale on dawn regrowth.
+   *
+   * @param catalog Updated `ResourceNodeCatalog`.
+   * @example
+   * env.syncRegrowth(resourceNodes);
+   */
+  public syncRegrowth(catalog: ResourceNodeCatalog): void {
+    for (const node of catalog.getAllNodes()) {
+      const entry = this.nodeEntries.get(node.id);
+      if (!entry) continue;
+      entry.depleted = node.depleted;
+      if (!node.depleted) {
+        entry.root.scaling.setAll(entry.baseScale);
+      }
+    }
+  }
+
+  /**
+   * Plays a hit shake on a pollution mound and collapses it once scrubbed.
+   *
+   * @param id Mound identifier.
+   * @param scrubbed Whether the mound was fully cleared.
+   * @example
+   * env.animateMoundHit('mound-right-inner', true);
+   */
+  public animateMoundHit(id: string, scrubbed: boolean): void {
+    const root = this.moundEntries.get(id);
+    if (!root) return;
+    this.ecs.triggerWobble(id, IslandEnvironment.WOBBLE_DURATION);
+    if (scrubbed) {
+      root.setEnabled(false);
+    }
+  }
+
+  /**
+   * Instantiates a glowing 3D purifying flower bloom at a planted location.
+   *
+   * @param flora Descriptor returned by `PlantingSystem.plantAt`.
+   * @example
+   * env.spawnPlantedFlora(bloom);
+   */
+  public spawnPlantedFlora(flora: PlantedFlora): void {
+    const model = this.assembly.assemble(this.blueprints.getPropBlueprint('purifier_flower'), flora.id);
+    model.root.position.set(flora.x, 0, flora.z);
+    model.root.scaling.setAll(1.1);
+    this.lighting.addShadowCasters(model.getMeshes());
+    this.nodeEntries.set(flora.id, { root: model.root, baseScale: 1.1, depleted: false });
+    this.ecs.registerPlantedBloom(flora.id, flora.x, flora.z);
+    this.ecs.triggerWobble(flora.id, IslandEnvironment.WOBBLE_DURATION);
   }
 
   private _buildTerrainAndWater(): void {
@@ -213,17 +316,22 @@ export class IslandEnvironment {
     }
   }
 
-  private _buildFloraAndCorruption(corruption: CorruptionField): void {
-    FLORA_PLACEMENTS.forEach((f, idx) => {
-      const prop = this.assembly.assemble(this.blueprints.getPropBlueprint(f.kind), `flora-${idx}`);
-      prop.root.position.set(f.x, 0, f.z);
-      prop.root.scaling.setAll(f.scale);
+  private _buildFloraAndCorruption(
+    resourceNodes: ResourceNodeCatalog,
+    corruption: CorruptionField,
+  ): void {
+    for (const node of resourceNodes.getAllNodes()) {
+      const prop = this.assembly.assemble(this.blueprints.getPropBlueprint(node.kind), node.id);
+      prop.root.position.set(node.x, 0, node.z);
+      prop.root.scaling.setAll(node.scale);
       this.lighting.addShadowCasters(prop.getMeshes());
-    });
+      this.nodeEntries.set(node.id, { root: prop.root, baseScale: node.scale, depleted: false });
+    }
     for (const mound of corruption.getMounds()) {
       const model = this.assembly.assemble(this.blueprints.getPropBlueprint('mound'), mound.id);
       model.root.position.set(mound.x, 0, 2.4);
       this.lighting.addShadowCasters(model.getMeshes());
+      this.moundEntries.set(mound.id, model.root);
     }
     this._buildPortals();
   }
@@ -257,16 +365,36 @@ export class IslandEnvironment {
   }
 
   private _buildBorderMarkers(corruption: CorruptionField): { left: TransformNode; right: TransformNode } {
-    const left = this._createMistPost('corruption-border-left', corruption.getLeftBorderX());
-    const right = this._createMistPost('corruption-border-right', corruption.getRightBorderX());
+    const left = this._createMistPost('corruption-border-left', corruption.getLeftBorderX(), -1);
+    const right = this._createMistPost('corruption-border-right', corruption.getRightBorderX(), 1);
     return { left, right };
   }
 
-  private _createMistPost(name: string, x: number): TransformNode {
+  private _createMistPost(name: string, x: number, sideSign: number): TransformNode {
     const post = MeshBuilder.CreateCylinder(name, { height: 2.2, diameterTop: 0.2, diameterBottom: 0.65, tessellation: 8 }, this.scene);
     post.position.set(x, 1.1, 2.0);
     post.material = this.materials.getMaterial('corruptionNeon');
+    const strip = MeshBuilder.CreateBox(`${name}-line`, { width: 0.24, height: 0.08, depth: 5.2 }, this.scene);
+    strip.parent = post;
+    strip.position.set(sideSign * 0.2, -1.04, -1.6);
+    strip.material = this.materials.getMaterial('corruptionNeon');
     return post;
+  }
+
+  private _updateWobbles(deltaSeconds: number): void {
+    this.ecs.tickWobbles(deltaSeconds, (id, remaining) => {
+      if (remaining <= 0) return;
+      const root = this.nodeEntries.get(id)?.root ?? this.moundEntries.get(id);
+      if (!root) return;
+      root.rotation.z = Math.sin(remaining * 45) * 0.14;
+    });
+  }
+
+  private _resetWobble(eid: number): void {
+    const id = this.ecs.getStringId(eid);
+    if (!id) return;
+    const root = this.nodeEntries.get(id)?.root ?? this.moundEntries.get(id);
+    if (root) root.rotation.z = 0;
   }
 
   private _animateLilyPads(elapsedSeconds: number): void {

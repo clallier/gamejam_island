@@ -30,4 +30,20 @@ describe('CorruptionField', () => {
     field.pushBorder('right', 6);
     expect(field.getPurityRatio()).toBeGreaterThan(initialPurity);
   });
+
+  it('supports 3-hit mound scrubbing, outward pushback, and active mound lookup', () => {
+    const field = new CorruptionField(-34, 34);
+    expect(field.findNearestActiveMound(-36.5, 3)?.id).toBe('mound-left-inner');
+
+    const hit1 = field.hitMound('mound-left-inner', 1, 4.5);
+    const hit2 = field.hitMound('mound-left-inner', 1, 4.5);
+    expect(hit1?.scrubbed).toBe(false);
+    expect(hit2?.scrubbed).toBe(false);
+    expect(field.getLeftBorderX()).toBe(-34);
+
+    const hit3 = field.hitMound('mound-left-inner', 1, 4.5);
+    expect(hit3?.scrubbed).toBe(true);
+    expect(field.getLeftBorderX()).toBe(-38.5);
+    expect(field.findNearestActiveMound(-36.5, 3)).toBeNull();
+  });
 });

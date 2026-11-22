@@ -16,13 +16,16 @@ describe('InputController', () => {
 
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD' }));
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyP' }));
     const first = input.consumeSnapshot();
     expect(first.moveX).toBe(1);
     expect(first.jumpPressed).toBe(true);
+    expect(first.plantPressed).toBe(true);
 
     const second = input.consumeSnapshot();
     expect(second.moveX).toBe(1);
     expect(second.jumpPressed).toBe(false);
+    expect(second.plantPressed).toBe(false);
 
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
     expect(input.consumeSnapshot().moveX).toBe(0);
@@ -38,10 +41,12 @@ describe('InputController', () => {
     input.setHoldState('left', true);
     input.triggerTap('toss');
     input.triggerTap('interact');
+    input.triggerTap('plant');
     const snap = input.consumeSnapshot();
     expect(snap.moveX).toBe(-1);
     expect(snap.tossPressed).toBe(true);
     expect(snap.interactPressed).toBe(true);
+    expect(snap.plantPressed).toBe(true);
     expect(snap.jumpPressed).toBe(false);
 
     input.setHoldState('left', false);

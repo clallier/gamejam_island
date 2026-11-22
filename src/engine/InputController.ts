@@ -1,11 +1,12 @@
 export type HoldAction = 'left' | 'right';
-export type TapAction = 'jump' | 'interact' | 'toss';
+export type TapAction = 'jump' | 'interact' | 'toss' | 'plant';
 
 export interface InputSnapshot {
   readonly moveX: number;
   readonly jumpPressed: boolean;
   readonly interactPressed: boolean;
   readonly tossPressed: boolean;
+  readonly plantPressed: boolean;
 }
 
 /**
@@ -18,12 +19,14 @@ export class InputController {
   private static readonly JUMP_KEYS = new Set(['Space', 'ArrowUp', 'KeyW', 'KeyZ']);
   private static readonly INTERACT_KEYS = new Set(['KeyE', 'KeyF', 'Enter']);
   private static readonly TOSS_KEYS = new Set(['KeyJ', 'KeyK', 'ShiftLeft', 'ShiftRight']);
+  private static readonly PLANT_KEYS = new Set(['KeyP']);
 
   private readonly activeKeys = new Set<string>();
   private readonly activeHolds = new Set<HoldAction>();
   private jumpQueued = false;
   private interactQueued = false;
   private tossQueued = false;
+  private plantQueued = false;
   private readonly cleanups: Array<() => void> = [];
 
   /**
@@ -64,7 +67,7 @@ export class InputController {
   }
 
   /**
-   * Queues a single-frame discrete action tap (`'jump' | 'interact' | 'toss'`).
+   * Queues a single-frame discrete action tap (`'jump' | 'interact' | 'toss' | 'plant'`).
    *
    * @param action Action identifier to queue for the next frame snapshot.
    * @example
@@ -73,6 +76,7 @@ export class InputController {
   public triggerTap(action: TapAction): void {
     if (action === 'jump') this.jumpQueued = true;
     else if (action === 'interact') this.interactQueued = true;
+    else if (action === 'plant') this.plantQueued = true;
     else this.tossQueued = true;
   }
 
@@ -89,10 +93,12 @@ export class InputController {
       jumpPressed: this.jumpQueued,
       interactPressed: this.interactQueued,
       tossPressed: this.tossQueued,
+      plantPressed: this.plantQueued,
     };
     this.jumpQueued = false;
     this.interactQueued = false;
     this.tossQueued = false;
+    this.plantQueued = false;
     return snapshot;
   }
 
@@ -114,6 +120,7 @@ export class InputController {
     if (InputController.JUMP_KEYS.has(e.code)) this.triggerTap('jump');
     if (InputController.INTERACT_KEYS.has(e.code)) this.triggerTap('interact');
     if (InputController.TOSS_KEYS.has(e.code)) this.triggerTap('toss');
+    if (InputController.PLANT_KEYS.has(e.code)) this.triggerTap('plant');
   }
 
   private _computeMoveX(): number {

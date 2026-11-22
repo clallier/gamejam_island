@@ -50,7 +50,16 @@ describe('ModularAssemblyFactory + Providers', () => {
       );
     }
 
-    const props: WorldPropKind[] = ['shrine', 'tree_pine', 'tree_broadleaf', 'boulder', 'mound', 'portal'];
+    const props: WorldPropKind[] = [
+      'shrine',
+      'tree_pine',
+      'tree_broadleaf',
+      'boulder',
+      'mound',
+      'portal',
+      'wildflower',
+      'purifier_flower',
+    ];
     for (const propKind of props) {
       const prop = factory.assemble(registry.getPropBlueprint(propKind), `prop-${propKind}`);
       expect(prop.getMeshes().length).toBeGreaterThan(0);

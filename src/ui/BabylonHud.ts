@@ -4,6 +4,7 @@ import { AdvancedDynamicTexture } from '@babylonjs/gui/2D/advancedDynamicTexture
 import type { Control } from '@babylonjs/gui/2D/controls/control.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { InputController } from '../engine/InputController.ts';
+import type { InteractionTarget } from '../systems/InteractionResolver.ts';
 import type { DollhousePlot, IslandZone, ResourceKey } from '../world/constants.ts';
 import type { TimeSnapshot } from '../world/TimeCycle.ts';
 import { DollhouseCardView } from './DollhouseCardView.ts';
@@ -97,19 +98,44 @@ export class BabylonHud {
   }
 
   /**
-   * Updates contextual dollhouse inspect button and cutaway preview card.
+   * Updates contextual interact button, plant button, and cutaway dollhouse card.
    *
-   * @param nearbyPlot Nearest `DollhousePlot` within interaction range, or `null`.
+   * @param target Nearest resolved `InteractionTarget` or `null`.
    * @param focusedPlot Currently zoomed `DollhousePlot`, or `null`.
+   * @param canPlant Whether a purifying flower can currently be planted.
    * @example
-   * hud.updateDollhouseContext(nearby, focused);
+   * hud.updateInteractionContext(target, focused, true);
    */
-  public updateDollhouseContext(
-    nearbyPlot: DollhousePlot | null,
+  public updateInteractionContext(
+    target: InteractionTarget | null,
     focusedPlot: DollhousePlot | null,
+    canPlant: boolean,
   ): void {
-    this.dock.updateInspectButton(nearbyPlot, focusedPlot);
+    this.dock.updateInteractionContext(target, focusedPlot, canPlant);
     this.card.renderPlot(focusedPlot);
+  }
+
+  /**
+   * Displays a short non-blocking feedback toast below the top bar.
+   *
+   * @param message Message to display.
+   * @param color Optional border/text accent hex.
+   * @example
+   * hud.showToast('Purifying Bloom Planted!');
+   */
+  public showToast(message: string, color?: string): void {
+    this.topBar.showToast(message, color);
+  }
+
+  /**
+   * Advances time-based HUD feedback animations such as toast fade-out.
+   *
+   * @param deltaSeconds Frame delta in seconds.
+   * @example
+   * hud.tick(dt);
+   */
+  public tick(deltaSeconds: number): void {
+    this.topBar.tick(deltaSeconds);
   }
 
   /**

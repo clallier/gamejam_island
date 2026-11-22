@@ -6,11 +6,21 @@ import {
   type IslandSide,
   MAX_CORRUPTION_HALF_WIDTH,
   MIN_CORRUPTION_HALF_WIDTH,
+  MOUND_MAX_HP,
   type PollutionMoundSeed,
 } from './constants.ts';
 
 export interface PollutionMoundState extends PollutionMoundSeed {
+  hp: number;
+  readonly maxHp: number;
   scrubbed: boolean;
+}
+
+export interface MoundHitOutcome {
+  readonly hit: boolean;
+  readonly scrubbed: boolean;
+  readonly side: IslandSide;
+  readonly x: number;
 }
 
 /**
@@ -45,7 +55,12 @@ export class CorruptionField {
     }
     this.leftBorderX = this._clampLeft(leftBorderX);
     this.rightBorderX = this._clampRight(rightBorderX);
-    this.mounds = moundSeeds.map((seed) => ({ ...seed, scrubbed: false }));
+    this.mounds = moundSeeds.map((seed) => ({
+      ...seed,
+      hp: MOUND_MAX_HP,
+      maxHp: MOUND_MAX_HP,
+      scrubbed: false,
+    }));
   }
 
   /**
@@ -130,8 +145,53 @@ export class CorruptionField {
   public scrubMound(id: string): boolean {
     const target = this.mounds.find((m) => m.id === id);
     if (!target || target.scrubbed) return false;
+    target.hp = 0;
     target.scrubbed = true;
     return true;
+  }
+
+  /**
+   * Finds the nearest active (unscrubbed) pollution mound within `maxDistance` of `x`.
+   *
+   * @param x Query X coordinate along the road.
+   * @param maxDistance Maximum X separation to match.
+   * @returns Closest active `PollutionMoundState` or `null`.
+   * @example
+   * const mound = field.findNearestActiveMound(-36.5, 3.2);
+   */
+  public findNearestActiveMound(x: number, maxDistance: number): PollutionMoundState | null {
+    let best: PollutionMoundState | null = null;
+    let bestDist = maxDistance;
+    for (const mound of this.mounds) {
+      const dist = Math.abs(mound.x - x);
+      if (!mound.scrubbed && dist <= bestDist) {
+        best = mound;
+        bestDist = dist;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Scrubs an active pollution mound, clearing it and pushing its border on 0 HP.
+   *
+   * @param id Target mound identifier.
+   * @param damage Hit damage applied. Defaults to `1`.
+   * @param borderPush Outward border push distance on scrub completion. Defaults to `4.5`.
+   * @returns `MoundHitOutcome` or `null` when missing or already scrubbed.
+   * @example
+   * const outcome = field.hitMound('mound-right-inner');
+   */
+  public hitMound(id: string, damage = 1, borderPush = 4.5): MoundHitOutcome | null {
+    const target = this.mounds.find((m) => m.id === id);
+    if (!target || target.scrubbed) return null;
+    target.hp = Math.max(0, target.hp - Math.max(1, damage));
+    const scrubbed = target.hp === 0;
+    if (scrubbed) {
+      target.scrubbed = true;
+      this.pushBorder(target.side, borderPush);
+    }
+    return { hit: true, scrubbed, side: target.side, x: target.x };
   }
 
   /**

@@ -8,15 +8,21 @@ import { GltfPartProvider } from '../../src/assets/GltfPartProvider.ts';
 import { ModularAssemblyFactory } from '../../src/assets/ModularAssemblyFactory.ts';
 import { ProceduralPartProvider } from '../../src/assets/ProceduralPartProvider.ts';
 import { StylizedMaterialFactory } from '../../src/assets/StylizedMaterialFactory.ts';
+import { IslandEcsWorld } from '../../src/ecs/IslandEcsWorld.ts';
 import { DayNightRig } from '../../src/engine/DayNightRig.ts';
 import { DioramaCamera } from '../../src/engine/DioramaCamera.ts';
 import type { InputSnapshot } from '../../src/engine/InputController.ts';
 import { PhysicsWorld } from '../../src/engine/PhysicsWorld.ts';
 import { PLAYER_MAX_PEBBLES } from '../../src/entities/constants.ts';
+import { LootDropSystem } from '../../src/entities/LootDropSystem.ts';
 import { PlayerController } from '../../src/entities/PlayerController.ts';
 import { IslandEnvironment } from '../../src/scene/IslandEnvironment.ts';
+import { INTERACT_RANGE } from '../../src/systems/constants.ts';
+import { PlantingSystem } from '../../src/systems/PlantingSystem.ts';
 import { CorruptionField } from '../../src/world/CorruptionField.ts';
+import { InventoryStore } from '../../src/world/InventoryStore.ts';
 import { IslandStrip } from '../../src/world/IslandStrip.ts';
+import { ResourceNodeCatalog } from '../../src/world/ResourceNodeCatalog.ts';
 import { TimeCycle } from '../../src/world/TimeCycle.ts';
 
 const IDLE_INPUT: InputSnapshot = {
@@ -24,9 +30,10 @@ const IDLE_INPUT: InputSnapshot = {
   jumpPressed: false,
   interactPressed: false,
   tossPressed: false,
+  plantPressed: false,
 };
 
-describe('PhysicsWorld + IslandEnvironment + PlayerController integration', () => {
+describe('PhysicsWorld + bitECS + IslandEnvironment + PlayerController + Pooled Loot', () => {
   const disposables: Array<() => void> = [];
 
   afterEach(() => {
@@ -52,19 +59,39 @@ describe('PhysicsWorld + IslandEnvironment + PlayerController integration', () =
     const assembly = new ModularAssemblyFactory(scene, gltf);
     const lighting = new DayNightRig(scene, materials);
     const camera = new DioramaCamera(scene);
+    const ecs = new IslandEcsWorld();
     const strip = new IslandStrip();
     const corruption = new CorruptionField();
+    const resourceNodes = new ResourceNodeCatalog();
+    const inventory = new InventoryStore();
+    const planting = new PlantingSystem();
     const clock = new TimeCycle();
-    const env = new IslandEnvironment(scene, assembly, blueprints, materials, physics, lighting, strip, corruption);
+
+    strip.getDollhousePlots().forEach((p, idx) =>
+      ecs.registerDollhouse(idx, `house-${p.roleId}`, p.x, INTERACT_RANGE),
+    );
+    resourceNodes.getAllNodes().forEach((n, idx) =>
+      ecs.registerResourceNode(idx, n.id, n.x, n.z, INTERACT_RANGE),
+    );
+    corruption.getMounds().forEach((m, idx) =>
+      ecs.registerPollutionMound(idx, m.id, m.x, INTERACT_RANGE),
+    );
+
+    const loot = new LootDropSystem(scene, ecs, physics, materials, lighting);
+    const env = new IslandEnvironment(
+      scene, assembly, blueprints, materials, physics, lighting, ecs, strip, corruption, resourceNodes,
+    );
     const hero = assembly.assemble(blueprints.getHeroBlueprint(), 'player-hero');
     const player = new PlayerController(scene, physics, strip, materials, hero);
 
     camera.snap(390 / 844, player.getX());
     disposables.push(() => {
+      loot.dispose();
+      env.dispose();
       scene.dispose();
       engine.dispose();
     });
-    return { scene, player, env, lighting, corruption, clock };
+    return { scene, ecs, player, env, lighting, corruption, resourceNodes, inventory, planting, loot, clock };
   }
 
   function stepFrames(
@@ -75,6 +102,7 @@ describe('PhysicsWorld + IslandEnvironment + PlayerController integration', () =
     const dt = 1 / 60;
     for (let i = 0; i < frames; i++) {
       ctx.player.update(dt, input);
+      ctx.loot.update(dt, ctx.player.getX(), ctx.inventory);
       ctx.lighting.update(ctx.clock.advance(dt), ctx.player.getX());
       ctx.env.update(i * dt, dt, ctx.player.getX(), ctx.corruption);
       ctx.scene.getPhysicsEngine()?._step(dt);
@@ -119,5 +147,36 @@ describe('PhysicsWorld + IslandEnvironment + PlayerController integration', () =
     expect(pebbleMeshes.length).toBe(PLAYER_MAX_PEBBLES);
     const latestPebble = pebbleMeshes[pebbleMeshes.length - 1]!;
     expect(latestPebble.position.x - ctx.player.getX()).toBeLessThan(5);
+  });
+
+  it('spawns pooled Havok + bitECS loot, collects into inventory, reuses meshes, and plants blooms', async () => {
+    const ctx = await bootScene();
+    stepFrames(ctx, 20, IDLE_INPUT);
+
+    const woodBefore = ctx.inventory.getAmount('wood');
+    const hit = ctx.resourceNodes.hitNode('node-right-leaf-inner');
+    expect(hit).not.toBeNull();
+    ctx.env.animateNodeHit('node-right-leaf-inner', hit!.depleted);
+    ctx.loot.spawnBurst('wood', 2, ctx.player.getX() + 0.4, 2.2, ctx.inventory);
+    expect(ctx.loot.getActiveCount()).toBe(2);
+
+    stepFrames(ctx, 45, IDLE_INPUT);
+    expect(ctx.loot.getActiveCount()).toBe(0);
+    expect(ctx.loot.getPooledCount()).toBe(2);
+    expect(ctx.inventory.getAmount('wood')).toBe(woodBefore + 2);
+
+    // Respawning reuses pooled meshes instead of creating new ones
+    ctx.loot.spawnBurst('wood', 2, ctx.player.getX() + 0.4, 2.2, ctx.inventory);
+    expect(ctx.loot.getPooledCount()).toBe(0);
+    expect(ctx.loot.getActiveCount()).toBe(2);
+
+    const petalsBefore = ctx.inventory.getAmount('petals');
+    const rightBorderBefore = ctx.corruption.getRightBorderX();
+    const bloom = ctx.planting.plantAt(24, ctx.inventory, ctx.corruption);
+    expect(bloom).not.toBeNull();
+    ctx.env.spawnPlantedFlora(bloom!);
+    expect(ctx.inventory.getAmount('petals')).toBe(petalsBefore - 2);
+    expect(ctx.corruption.getRightBorderX()).toBeGreaterThan(rightBorderBefore);
+    expect(ctx.scene.getTransformNodeByName(bloom!.id)).not.toBeNull();
   });
 });
