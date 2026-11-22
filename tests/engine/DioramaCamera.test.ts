@@ -61,5 +61,28 @@ describe('DioramaCamera', () => {
     expect(xProgress).toBeGreaterThan(0.6);
     expect(zDelta).toBeGreaterThan(0.1);
     expect(fovDelta).toBeLessThan((CAMERA_FOV_PORTRAIT_COMBAT - startFov) * 0.4);
+
+    // Combat facing leads ahead of player and glides smoothly when turning around
+    cam.snap(9 / 16, 10);
+    for (let i = 0; i < 30; i++) cam.update(0.1, 9 / 16, 10, null, true, 1);
+    const rightLeadX = scene.activeCamera!.position.x;
+    expect(rightLeadX).toBeGreaterThan(14);
+
+    // Turning left begins panning across player smoothly (not instant snap) and settles < 10
+    cam.update(0.15, 9 / 16, 10, null, true, -1);
+    expect(scene.activeCamera!.position.x).toBeLessThan(rightLeadX);
+    expect(scene.activeCamera!.position.x).toBeGreaterThan(10);
+    for (let i = 0; i < 30; i++) cam.update(0.1, 9 / 16, 10, null, true, -1);
+    expect(scene.activeCamera!.position.x).toBeLessThan(6);
+
+    // Daytime roam snap & lead transition keep opposing-side framing active outside combat
+    cam.snap(9 / 16, 10, 1);
+    expect(scene.activeCamera!.position.x).toBeGreaterThan(12);
+    for (let i = 0; i < 30; i++) cam.update(0.1, 9 / 16, 10, null, false, -1);
+    expect(scene.activeCamera!.position.x).toBeLessThan(8);
+
+    // Non-finite deltaSeconds never corrupts camera coordinates
+    cam.update(Number.NaN, 9 / 16, 10, null, false, -1);
+    expect(Number.isFinite(scene.activeCamera!.position.x)).toBe(true);
   });
 });

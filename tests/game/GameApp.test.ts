@@ -84,10 +84,19 @@ describe('GameApp (composition root)', () => {
       player: {
         collider: { position: { x: number } };
       };
-      inventory: { add: (k: 'wood' | 'stone' | 'petals' | 'shards', n: number) => number };
-      ecs: { spawnEnemyEntity: (k: number, x: number, s: -1 | 1, hp: number, spd: number) => number };
-      timeCycle: { advance: (dt: number) => unknown };
+      inventory: {
+        add: (k: 'wood' | 'stone' | 'petals' | 'shards', n: number) => number;
+        spend: (cost: Partial<Record<'wood' | 'stone' | 'petals' | 'shards', number>>) => boolean;
+        getSnapshot: () => Record<'wood' | 'stone' | 'petals' | 'shards', number>;
+      };
+      ecs: {
+        spawnEnemyEntity: (k: number, x: number, s: -1 | 1, hp: number, spd: number) => number;
+        getEntityId: (id: string) => number | undefined;
+        getComponents: () => { Defense: { hp: Float32Array } };
+      };
+      timeCycle: { advance: (dt: number) => unknown; jumpToPhase: (p: 'day' | 'dusk' | 'night' | 'dawn') => unknown };
       bonds: { hangOut: (role: 'medic', inv: unknown) => unknown; giveGift: (role: 'medic', inv: unknown) => unknown };
+      environment: { roadCrates: Array<{ mesh: { physicsBody?: { setLinearVelocity: (v: unknown) => void } } }> };
     };
     vi.spyOn(internal.engine, 'getDeltaTime').mockReturnValue(25);
     internal.inventory.add('wood', 20);
@@ -95,16 +104,44 @@ describe('GameApp (composition root)', () => {
     internal.inventory.add('petals', 20);
     internal.inventory.add('shards', 20);
 
-    // Resize & cycle phase preview button
+    // Resize, mute toggle, & cycle phase preview button
     window.dispatchEvent(new Event('resize'));
+    const muteBtn = internal.hud.getControlByName('btn-mute-audio') as Button;
+    muteBtn.onPointerClickObservable.notifyObservers(null as never);
+    expect((internal.hud.getControlByName('btn-mute-audio-label') as TextBlock).text).toBe('🔇');
+    muteBtn.onPointerClickObservable.notifyObservers(null as never);
     (internal.hud.getControlByName('btn-cycle-phase') as Button).onPointerClickObservable.notifyObservers(null as never);
     stepFrames(1);
 
-    // Plant blocked in town center
+    // Plant blocked in town center; empty inventory blocks gift & defense build & petal planting
     internal.player.collider.position.x = 0;
     internal.input.triggerTap('plant');
     stepFrames(1);
     expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Walk past Town Center');
+
+    const snapshot = internal.inventory.getSnapshot();
+    internal.inventory.spend(snapshot);
+    internal.player.collider.position.x = -13;
+    internal.input.triggerTap('interact');
+    stepFrames(1);
+    (internal.hud.getControlByName('btn-card-gift') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Need');
+    // Walking away from dollhouse auto-clears focus
+    internal.player.collider.position.x = -26;
+    stepFrames(1);
+    internal.input.triggerTap('interact');
+    stepFrames(1);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Need Wood/Stone/Shards');
+    internal.player.collider.position.x = 20;
+    internal.input.triggerTap('plant');
+    stepFrames(1);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Need 2 🌸 Petals');
+
+    // Restore abundant resources for build/upgrade/bond/plant testing
+    internal.inventory.add('wood', snapshot.wood + 20);
+    internal.inventory.add('stone', snapshot.stone + 20);
+    internal.inventory.add('petals', snapshot.petals + 20);
+    internal.inventory.add('shards', snapshot.shards + 20);
 
     // Focus Engineer dollhouse, hang out, gift, furnish, and exit via close button
     internal.player.collider.position.x = -13;
@@ -151,6 +188,22 @@ describe('GameApp (composition root)', () => {
     expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Frontier Regrew');
     expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('+2 🌸');
 
+    // Night combat: Defender spear attack + turret destruction toast + auto-dodge + crate impact
+    internal.timeCycle.jumpToPhase('night');
+    const slot0Eid = internal.ecs.getEntityId('slot-0')!;
+    internal.ecs.getComponents().Defense.hp[slot0Eid] = 1;
+    internal.ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_BRUTE, -26, -1, 100, 0);
+    internal.ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 5, 1, 24, 0);
+    stepFrames(1);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Defense Destroyed');
+
+    // Auto-dodge & crate impact during night combat
+    internal.player.collider.position.x = 0;
+    internal.ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 1.5, 1, 24, 0);
+    const { Vector3 } = await import('@babylonjs/core/Maths/math.vector.js');
+    internal.environment.roadCrates[2]?.mesh.physicsBody?.setLinearVelocity(new Vector3(5, 0, 0));
+    stepFrames(2);
+
     // Player toss hit + unguarded Town Heart breach while away -> game over freeze -> restart island
     internal.player.collider.position.x = 0;
     internal.ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 3, 1, 10, 0);
@@ -162,11 +215,14 @@ describe('GameApp (composition root)', () => {
     vi.spyOn(internal.engine, 'getDeltaTime').mockReturnValue(50);
     for (let i = 0; i < 240; i++) stepFrames(1);
     expect((internal.hud.getControlByName('hud-gameover-banner') as { isVisible: boolean }).isVisible).toBe(true);
+    // Game-over frozen frame tick renders HUD without advancing combat
+    stepFrames(1);
 
     // Restart button restores active play
     (internal.hud.getControlByName('btn-restart-island') as Button).onPointerClickObservable.notifyObservers(null as never);
-    stepFrames(1);
     expect((internal.hud.getControlByName('hud-gameover-banner') as { isVisible: boolean }).isVisible).toBe(false);
     expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Island Restored');
+    stepFrames(1);
+    expect((internal.hud.getControlByName('hud-gameover-banner') as { isVisible: boolean }).isVisible).toBe(false);
   });
 });

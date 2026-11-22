@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BlueprintRegistry } from '../../src/assets/BlueprintRegistry.ts';
@@ -103,18 +104,23 @@ describe('PhysicsWorld + bitECS + IslandEnvironment + PlayerController + Pooled 
     ctx: Awaited<ReturnType<typeof bootScene>>,
     frames: number,
     input: InputSnapshot,
-  ): void {
+  ): { landedSeen: boolean; steppedSeen: boolean } {
     const dt = 1 / 60;
+    let landedSeen = false;
+    let steppedSeen = false;
     for (let i = 0; i < frames; i++) {
-      ctx.player.update(dt, input);
+      const ev = ctx.player.update(dt, input);
+      if (ev.landed) landedSeen = true;
+      if (ev.stepped) steppedSeen = true;
       ctx.loot.update(dt, ctx.player.getX(), ctx.inventory);
       ctx.lighting.update(ctx.clock.advance(dt), ctx.player.getX());
       ctx.env.update(i * dt, dt, ctx.player.getX(), ctx.corruption);
       ctx.scene.getPhysicsEngine()?._step(dt);
     }
+    return { landedSeen, steppedSeen };
   }
 
-  it('enables Havok on Babylon scene, lands player on road, moves, jumps, and tosses pebbles', async () => {
+  it('enables Havok on Babylon scene, lands player on road, moves, auto-dodges, kicks crates, and tosses pebbles', async () => {
     const ctx = await bootScene();
     expect(ctx.scene.isPhysicsEnabled()).toBe(true);
 
@@ -136,16 +142,33 @@ describe('PhysicsWorld + bitECS + IslandEnvironment + PlayerController + Pooled 
     expect(Math.abs(collider.position.z)).toBeLessThan(0.01);
 
     const startX = ctx.player.getX();
-    stepFrames(ctx, 25, { ...IDLE_INPUT, moveX: 1 });
+    const walkRes = stepFrames(ctx, 25, { ...IDLE_INPUT, moveX: 1 });
+    expect(walkRes.steppedSeen).toBe(true);
+    expect(ctx.player.getFacing()).toBe(1);
     expect(ctx.player.getX()).toBeGreaterThan(startX + 1.5);
     expect(Math.abs(collider.position.z)).toBeLessThan(0.01);
 
+    stepFrames(ctx, 10, { ...IDLE_INPUT, moveX: -1 });
+    expect(ctx.player.getFacing()).toBe(-1);
+
     const groundY = collider.position.y;
-    stepFrames(ctx, 1, { ...IDLE_INPUT, jumpPressed: true });
+    expect(ctx.player.triggerAutoDodge(1, 2.5)).toBe(true);
+    expect(ctx.player.getAutoDodgeCooldown()).toBeCloseTo(2.5, 4);
+    expect(ctx.player.triggerAutoDodge(-1, 2.5)).toBe(false);
     expect(ctx.player.getSquashY()).toBeGreaterThan(1.05);
     stepFrames(ctx, 8, IDLE_INPUT);
-    expect(collider.position.y).toBeGreaterThan(groundY + 0.4);
-    expect(ctx.player.getSquashY()).toBeLessThan(1.1);
+    expect(collider.position.y).toBeGreaterThan(groundY + 0.35);
+    expect(ctx.player.getSquashY()).toBeLessThan(1.15);
+
+    const touchDown = stepFrames(ctx, 45, IDLE_INPUT);
+    expect(touchDown.landedSeen).toBe(true);
+
+    // Kicked road crate reports high velocity and emits dust on sampleMovingRoadCrates
+    const crateMesh = ctx.scene.getMeshByName('road-crate-2')!;
+    crateMesh.physicsBody!.setLinearVelocity(new Vector3(4.2, 0, 0));
+    stepFrames(ctx, 1, IDLE_INPUT);
+    const movingCrates = ctx.env.sampleMovingRoadCrates(1 / 60);
+    expect(movingCrates.some((c) => c.emitDust && c.vx > 1.6)).toBe(true);
 
     for (let i = 0; i < PLAYER_MAX_PEBBLES + 3; i++) {
       stepFrames(ctx, 1, { ...IDLE_INPUT, tossPressed: true });

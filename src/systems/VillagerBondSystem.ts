@@ -8,6 +8,9 @@ import {
   FURNISH_XP,
   type FurnitureTierSpec,
   HANGOUT_XP,
+  PLAYER_AUTODODGE_BASE_COOLDOWN,
+  PLAYER_AUTODODGE_BRAM_REDUCTION,
+  PLAYER_AUTODODGE_MIN_COOLDOWN,
   VILLAGER_CONFIGS,
   type VillagerRoleConfig,
 } from './constants.ts';
@@ -261,6 +264,22 @@ export class VillagerBondSystem {
    */
   public getDefenderBonusDamage(): number {
     return this._getLevel('defender') >= 3 ? 6 : 0;
+  }
+
+  /**
+   * Returns skill-scaled auto-dodge cooldown in seconds, shortened by Bram's Defender bond level.
+   *
+   * @returns Cooldown seconds (`4.0` at Lv 1, `3.25` at Lv 2, `2.5` at Lv 3).
+   * @throws Error Never thrown.
+   * @example
+   * const cd = bonds.getAutoDodgeCooldown();
+   */
+  public getAutoDodgeCooldown(): number {
+    const bramLevel = this._getLevel('defender');
+    return Math.max(
+      PLAYER_AUTODODGE_MIN_COOLDOWN,
+      PLAYER_AUTODODGE_BASE_COOLDOWN - (bramLevel - 1) * PLAYER_AUTODODGE_BRAM_REDUCTION,
+    );
   }
 
   private _getLevel(roleId: NpcRoleId): number {

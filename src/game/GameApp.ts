@@ -12,6 +12,7 @@ import { DayNightRig } from '../engine/DayNightRig.ts';
 import { DioramaCamera } from '../engine/DioramaCamera.ts';
 import { InputController, type InputSnapshot } from '../engine/InputController.ts';
 import { PhysicsWorld } from '../engine/PhysicsWorld.ts';
+import { DustPuffSystem } from '../entities/DustPuffSystem.ts';
 import { EnemyVisualSystem } from '../entities/EnemyVisualSystem.ts';
 import { LootDropSystem } from '../entities/LootDropSystem.ts';
 import { PlayerController } from '../entities/PlayerController.ts';
@@ -75,6 +76,7 @@ export class GameApp {
   private environment!: IslandEnvironment;
   private lootDrops!: LootDropSystem;
   private enemyVisuals!: EnemyVisualSystem;
+  private dustPuffs!: DustPuffSystem;
   private pipeline!: SimulationPipeline;
   private focusedDollhouse: DollhousePlot | null = null;
   private elapsedSeconds = 0;
@@ -112,7 +114,7 @@ export class GameApp {
     await this._composeScene(physics);
     this._bindEvents();
     this._resizeHud();
-    this.camera.snap(this._getAspectRatio(), this.player.getX());
+    this.camera.snap(this._getAspectRatio(), this.player.getX(), this.player.getFacing());
     this.engine.runRenderLoop(() => this._tick());
   }
 
@@ -126,6 +128,7 @@ export class GameApp {
     window.removeEventListener('resize', this._handleResize);
     this.lootDrops?.dispose();
     this.enemyVisuals?.dispose();
+    this.dustPuffs?.dispose();
     this.environment?.dispose();
     this.input.dispose();
     this.audio.dispose();
@@ -146,6 +149,7 @@ export class GameApp {
     this._registerEcsEntities();
     this.lootDrops = new LootDropSystem(this.scene, this.ecs, physics, materials, this.lighting);
     this.enemyVisuals = new EnemyVisualSystem(this.scene, this.ecs, assembly, blueprints, materials, this.lighting);
+    this.dustPuffs = new DustPuffSystem(this.scene, materials);
     this.environment = new IslandEnvironment(
       this.scene, assembly, blueprints, materials, physics, this.lighting,
       this.ecs, this.strip, this.corruption, this.resourceNodes,
@@ -210,10 +214,11 @@ export class GameApp {
       return;
     }
     this.elapsedSeconds += dt;
-    if (frameInput.jumpPressed) this.audio.play('jump');
     if (frameInput.tossPressed) this.audio.play('toss');
-    this.player.update(dt, frameInput);
+    const playerEvents = this.player.update(dt, frameInput);
     const playerX = this.player.getX();
+    if (playerEvents.stepped) this.dustPuffs.spawnBurst(playerX, 0.12, 0, 2, 0.45, 1.4);
+    if (playerEvents.landed) this.dustPuffs.spawnBurst(playerX, 0.12, 0, 5, 0.9, 2.0);
     const frame = this.pipeline.run(dt, this.elapsedSeconds, playerX);
     this._handleActions(frameInput, playerX, frame.target);
     this._notifyCollectedLoot(frame.collectedLoot);
@@ -232,7 +237,14 @@ export class GameApp {
     this._stepCombat(dt, frameInput, playerX, timeSnap);
     const inCombat = timeSnap.phase === 'night' || this.waveCombat.getActiveEnemyCount() > 0;
     this.lighting.update(timeSnap, playerX);
-    this.camera.update(dt, this._getAspectRatio(), playerX, this.focusedDollhouse?.x ?? null, inCombat);
+    this.camera.update(
+      dt,
+      this._getAspectRatio(),
+      playerX,
+      this.focusedDollhouse?.x ?? null,
+      inCombat,
+      this.player.getFacing(),
+    );
     this.hud.tick(dt);
     const hudEnemyCount = this.waveCombat.getActiveEnemyCount() + this.waveCombat.getRemainingToSpawn();
     this.hud.updateStatus(
@@ -268,17 +280,40 @@ export class GameApp {
       this.audio.play(hasBowShot ? 'bowShot' : 'turretShot');
       this.shotAudioCooldown = 0.08;
     }
-    res.shots.forEach((s) => this.enemyVisuals.spawnTracer(s.fromX, s.toX, s.source));
+    res.shots.forEach((s) => {
+      this.enemyVisuals.spawnTracer(s.fromX, s.toX, s.source);
+      if (s.source === 'defender') this.environment.triggerNpcAttack('defender', s.toX >= s.fromX ? 1 : -1);
+    });
     res.slain.forEach((k) => this._spawnKillJuice(k.x));
+    this._tryPlayerAutoDodge(playerX);
+    this._stepRoadPropImpacts(dt);
     if (res.defenseDestroyed) this._syncAllDefenseVisuals('Defense Destroyed!');
     this.environment.setDefenderPatrolX(res.defenderPatrolX);
     this.enemyVisuals.update(this.elapsedSeconds, dt);
+    this.dustPuffs.update(dt);
     if (res.gameOver) this.audio.play('gameOver');
     this.hud.setGameOver(res.gameOver);
   }
 
+  private _tryPlayerAutoDodge(playerX: number): void {
+    const threatSide = this.waveCombat.findIncomingThreatSide(playerX);
+    if (threatSide === 0) return;
+    if (!this.player.triggerAutoDodge(threatSide, this.bonds.getAutoDodgeCooldown())) return;
+    this.audio.play('jump');
+    this.dustPuffs.spawnBurst(playerX, 0.15, 0, 6, 1.0, 2.4);
+  }
+
+  private _stepRoadPropImpacts(dt: number): void {
+    const crates = this.environment.sampleMovingRoadCrates(dt);
+    for (const crate of crates) {
+      if (crate.emitDust) this.dustPuffs.spawnBurst(crate.x, 0.16, crate.z, 3, 0.75, 1.8);
+    }
+    this.waveCombat.applyPropImpacts(crates).forEach((k) => this._spawnKillJuice(k.x));
+  }
+
   private _spawnKillJuice(x: number): void {
     this.enemyVisuals.spawnFirework(x);
+    this.dustPuffs.spawnBurst(x, 0.25, 0, 4, 1.1, 2.6);
     this.lootDrops.spawnBurst('shards', 1, x, 0, this.inventory);
   }
 

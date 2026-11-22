@@ -116,40 +116,50 @@ export class EnemyVisualSystem {
    * enemyVisuals.update(elapsed, dt);
    */
   public update(elapsedSeconds: number, dt: number): void {
+    const safeDt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
     this.counts.fill(0);
     const { Position, Enemy } = this.ecs.getComponents();
     for (const [eid, prevAge] of this.spawnAgeByEid) {
-      const nextAge = Math.min(EnemyVisualSystem.POP_DURATION, prevAge + Math.max(0, dt));
+      const nextAge = Math.min(EnemyVisualSystem.POP_DURATION, prevAge + safeDt);
       this.spawnAgeByEid.set(eid, nextAge);
       this._writeEnemyMatrix(eid, nextAge, elapsedSeconds, Position, Enemy);
     }
     this._flushThinInstances();
-    this._stepTracers(dt);
-    this._stepArrows(dt);
-    this._stepSparks(dt);
+    this._stepTracers(safeDt);
+    this._stepArrows(safeDt);
+    this._stepSparks(safeDt);
   }
 
   /**
-   * Spawns a pooled turret beam or delegates player shots to a parabolic bow arrow.
+   * Spawns a pooled turret beam, Defender spear thrust, or parabolic player bow arrow.
    *
    * @param fromX Origin X coordinate.
    * @param toX Impacted target X coordinate.
-   * @param source Whether fired by a `'turret'` or `'player'`. Defaults to `'turret'`.
+   * @param source Whether fired by `'turret'`, `'player'`, or `'defender'`. Defaults to `'turret'`.
    * @throws Error Never thrown.
    * @example
    * enemyVisuals.spawnTracer(0, 8, 'player');
    */
-  public spawnTracer(fromX: number, toX: number, source: 'turret' | 'player' = 'turret'): void {
+  public spawnTracer(
+    fromX: number,
+    toX: number,
+    source: 'turret' | 'player' | 'defender' = 'turret',
+  ): void {
     if (source === 'player') {
       this.spawnArrow(fromX, toX);
       return;
     }
     const mesh = this._acquireTracerMesh();
-    mesh.material = this.materials.getMaterial('amberGlow');
-    mesh.scaling.set(Math.max(0.5, Math.abs(toX - fromX)), 1, 1);
-    mesh.position.set((fromX + toX) * 0.5, 0.98, 0.75);
+    const isSpear = source === 'defender';
+    mesh.material = this.materials.getMaterial(isSpear ? 'defender' : 'amberGlow');
+    mesh.scaling.set(
+      Math.max(isSpear ? 0.8 : 0.5, Math.abs(toX - fromX)),
+      isSpear ? 1.5 : 1,
+      isSpear ? 9.0 : 1,
+    );
+    mesh.position.set((fromX + toX) * 0.5, isSpear ? 0.72 : 0.98, isSpear ? 0 : 0.75);
     mesh.setEnabled(true);
-    this.activeTracers.push({ mesh, remaining: EnemyVisualSystem.TRACER_LIFE });
+    this.activeTracers.push({ mesh, remaining: isSpear ? 0.09 : EnemyVisualSystem.TRACER_LIFE });
   }
 
   /**

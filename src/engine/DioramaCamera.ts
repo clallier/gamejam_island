@@ -13,6 +13,7 @@ export class DioramaCamera {
   private readonly camera: FreeCamera;
   private readonly framing: CameraFraming;
   private readonly currentTarget = new Vector3(0, 1.4, 0.9);
+  private smoothedLeadX = 0;
 
   /**
    * Creates and registers the active diorama `FreeCamera` on the scene.
@@ -35,11 +36,14 @@ export class DioramaCamera {
    *
    * @param aspectRatio Canvas width / height ratio.
    * @param playerX Initial player X position.
+   * @param facing Optional initial facing direction (`-1`, `0`, `1`) for lead framing. Defaults to `0`.
+   * @throws Error Propagates `RangeError` if `aspectRatio` is invalid.
    * @example
-   * cam.snap(canvas.width / canvas.height, 0);
+   * cam.snap(canvas.width / canvas.height, 0, 1);
    */
-  public snap(aspectRatio: number, playerX: number): void {
-    const pose = this.framing.compute(aspectRatio, playerX, null);
+  public snap(aspectRatio: number, playerX: number, facing: -1 | 0 | 1 = 0): void {
+    const pose = this.framing.compute(aspectRatio, playerX, null, false, facing);
+    this.smoothedLeadX = pose.position.x - playerX;
     this.camera.position.set(pose.position.x, pose.position.y, pose.position.z);
     this.currentTarget.set(pose.target.x, pose.target.y, pose.target.z);
     this.camera.fov = pose.fov;
@@ -54,9 +58,10 @@ export class DioramaCamera {
    * @param playerX Current player X coordinate.
    * @param focusDollhouseX Focused dollhouse X coordinate, or `null` when roaming.
    * @param inCombat When `true`, zooms out during battle to frame approaching enemies.
+   * @param facing Facing direction (`-1`, `0`, `1`) shifting camera ahead of player during roam and combat.
    * @throws Error Propagates `RangeError` if `aspectRatio` is invalid.
    * @example
-   * cam.update(dt, aspect, player.getX(), activeDollhouseX, true);
+   * cam.update(dt, aspect, player.getX(), activeDollhouseX, true, 1);
    */
   public update(
     deltaSeconds: number,
@@ -64,19 +69,22 @@ export class DioramaCamera {
     playerX: number,
     focusDollhouseX: number | null,
     inCombat = false,
+    facing: -1 | 0 | 1 = 0,
   ): void {
-    const pose = this.framing.compute(aspectRatio, playerX, focusDollhouseX, inCombat);
-    const dt = Math.max(0, deltaSeconds);
+    const pose = this.framing.compute(aspectRatio, playerX, focusDollhouseX, inCombat, facing);
+    const dt = Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
     const followAlpha = 1 - Math.exp(-CAMERA_DAMP_SPEED * dt);
     const zoomAlpha = 1 - Math.exp(-CAMERA_ZOOM_DAMP_SPEED * dt);
-    this._lerpCamera(pose, followAlpha, zoomAlpha);
+    const anchorX = focusDollhouseX ?? playerX;
+    this.smoothedLeadX = Scalar.Lerp(this.smoothedLeadX, pose.position.x - anchorX, zoomAlpha);
+    this._lerpCamera(pose, anchorX + this.smoothedLeadX, followAlpha, zoomAlpha);
   }
 
-  private _lerpCamera(pose: CameraPose, followAlpha: number, zoomAlpha: number): void {
-    this.camera.position.x = Scalar.Lerp(this.camera.position.x, pose.position.x, followAlpha);
+  private _lerpCamera(pose: CameraPose, targetX: number, followAlpha: number, zoomAlpha: number): void {
+    this.camera.position.x = Scalar.Lerp(this.camera.position.x, targetX, followAlpha);
     this.camera.position.y = Scalar.Lerp(this.camera.position.y, pose.position.y, zoomAlpha);
     this.camera.position.z = Scalar.Lerp(this.camera.position.z, pose.position.z, zoomAlpha);
-    this.currentTarget.x = Scalar.Lerp(this.currentTarget.x, pose.target.x, followAlpha);
+    this.currentTarget.x = Scalar.Lerp(this.currentTarget.x, targetX, followAlpha);
     this.currentTarget.y = Scalar.Lerp(this.currentTarget.y, pose.target.y, zoomAlpha);
     this.currentTarget.z = Scalar.Lerp(this.currentTarget.z, pose.target.z, zoomAlpha);
     this.camera.fov = Scalar.Lerp(this.camera.fov, pose.fov, zoomAlpha);

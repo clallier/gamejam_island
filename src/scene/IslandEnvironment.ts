@@ -6,6 +6,7 @@ import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import type { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import type { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import { BlueprintRegistry } from '../assets/BlueprintRegistry.ts';
 import type { PaletteKey, PartId } from '../assets/constants.ts';
@@ -24,6 +25,9 @@ import {
   DOLLHOUSE_Z,
   LILYPAD_XS,
   ROAD_COLLIDER_HEIGHT,
+  ROAD_CRATE_DUST_COOLDOWN,
+  ROAD_CRATE_IMPACT_SPEED,
+  ROAD_CRATE_MAX_ABS_X,
   ROAD_DEPTH,
   ROAD_PROP_XS,
   ROAD_WIDTH,
@@ -41,6 +45,22 @@ interface NodeVisualEntry {
   readonly root: TransformNode;
   readonly baseScale: number;
   depleted: boolean;
+}
+
+interface RoadCrateEntry {
+  readonly mesh: Mesh;
+  readonly aggregate: PhysicsAggregate;
+  dustCooldown: number;
+}
+
+/**
+ * Snapshot of a moving road crate returned for impact damage and dust puffs.
+ */
+export interface MovingRoadCrate {
+  readonly x: number;
+  readonly z: number;
+  readonly vx: number;
+  readonly emitDust: boolean;
 }
 
 /**
@@ -63,7 +83,7 @@ export class IslandEnvironment {
   private readonly dollhouseModels = new Map<NpcRoleId, AssembledModel>();
   private readonly defenseVisuals = new Map<number, AssembledModel>();
   private readonly lilyPads: Mesh[] = [];
-  private readonly roadCrates: Mesh[] = [];
+  private readonly roadCrates: RoadCrateEntry[] = [];
   private readonly nodeEntries = new Map<string, NodeVisualEntry>();
   private readonly moundEntries = new Map<string, TransformNode>();
   private readonly corruptionBorders: { left: TransformNode; right: TransformNode };
@@ -290,6 +310,42 @@ export class IslandEnvironment {
     this.npcByRole.get('defender')?.setPatrolX(x);
   }
 
+  /**
+   * Plays an NPC's procedural weapon attack animation toward `direction`.
+   *
+   * @param roleId Target villager role identifier.
+   * @param direction Horizontal world X strike sign (`1` right, `-1` left).
+   * @throws Error Never thrown.
+   * @example
+   * env.triggerNpcAttack('defender', 1);
+   */
+  public triggerNpcAttack(roleId: NpcRoleId, direction: 1 | -1): void {
+    this.npcByRole.get(roleId)?.triggerAttack(direction);
+  }
+
+  /**
+   * Samples dynamic road crates moving fast enough to bowl over enemies or kick up dust.
+   *
+   * @param dt Frame delta in seconds used to tick per-crate dust emission cooldowns.
+   * @returns Moving crates exceeding `ROAD_CRATE_IMPACT_SPEED`.
+   * @throws Error Never thrown.
+   * @example
+   * const crates = env.sampleMovingRoadCrates(dt);
+   */
+  public sampleMovingRoadCrates(dt: number): MovingRoadCrate[] {
+    const safeDt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+    const moving: MovingRoadCrate[] = [];
+    for (const entry of this.roadCrates) {
+      entry.dustCooldown = Math.max(0, entry.dustCooldown - safeDt);
+      const vel = this.physics.getLinearVelocity(entry.aggregate);
+      if (Math.hypot(vel.x, vel.z) < ROAD_CRATE_IMPACT_SPEED) continue;
+      const emitDust = entry.dustCooldown <= 0;
+      if (emitDust) entry.dustCooldown = ROAD_CRATE_DUST_COOLDOWN;
+      moving.push({ x: entry.mesh.position.x, z: entry.mesh.position.z, vx: vel.x, emitDust });
+    }
+    return moving;
+  }
+
   private _buildTerrainAndWater(): void {
     const soil = MeshBuilder.CreateBox('island-soil', {
       width: TERRAIN_WIDTH,
@@ -426,13 +482,18 @@ export class IslandEnvironment {
       const agg = this.physics.attachDynamicProp(crate, PhysicsShapeType.BOX, 0.45, 0.3);
       agg.body.setLinearDamping(1.4);
       agg.body.setAngularDamping(2.0);
-      this.roadCrates.push(crate);
+      this.roadCrates.push({ mesh: crate, aggregate: agg, dustCooldown: 0 });
     });
   }
 
   private _containRoadCrates(): void {
-    for (const crate of this.roadCrates) {
-      crate.position.z = Scalar.Clamp(crate.position.z, -0.85, 0.85);
+    for (const entry of this.roadCrates) {
+      entry.mesh.position.x = Scalar.Clamp(
+        entry.mesh.position.x,
+        -ROAD_CRATE_MAX_ABS_X,
+        ROAD_CRATE_MAX_ABS_X,
+      );
+      entry.mesh.position.z = Scalar.Clamp(entry.mesh.position.z, -0.85, 0.85);
     }
   }
 

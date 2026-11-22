@@ -67,29 +67,36 @@ Hanging out with a villager smoothly zooms the 3/4 camera into their open-front 
 ## 6. Post-M5 Review Passes
 
 ### Gameplay Review Pass (Cosy Days · Fireworks Nights)
-- **G1 (Current): Auto-Shoot & Hundreds-of-Enemies Horde Engine**
-  - Automatic player targeting & slingshot fire with knockback and hit-flash when enemies enter range.
-  - Escalating Day 1→Day 5 swarm curve (`12 → 30 → 65 → 120 → 260` enemies by Day 5) with fast **Gloom Rushers** alongside Sprites & Brutes.
-  - GPU `ThinInstance` batched horde rendering + pooled firework/tracer sparks for 260-enemy battles at 60 FPS.
-- **G2: Dust Puffs, Road Prop Impacts & Auto-Jump Dodge**
+- **G1 (Done): Auto-Shoot Bow & Hundreds-of-Enemies Horde Engine**
+  - Directional limited-range bow auto-shoot (`9.5` units ahead of hero facing) with knockback, parabolic arrows, fireworks, and hit-flash.
+  - Escalating Day 1→Day 5 swarm curve (`28 → 70 → 140 → 240 → 400` enemies by Day 5) with fast **Gloom Rushers** alongside Sprites & Brutes across 5 road depth lanes.
+  - GPU `ThinInstance` batched horde rendering + portrait combat zoom-out with decoupled smooth zoom damping.
+- **G2 (Done): Dust Puffs, Road Prop Impacts, Auto-Jump Dodge, Lead Camera & Bram Town Center Spear**
   - Tactile dust puff bursts on footsteps, landings, crate collisions, and explosions; rolling road blocks knock back small swarms.
   - **Auto-Jump / Auto-Dodge:** Instead of manual platforming jumps, the hero automatically vaults/dodges over incoming enemies or hazard lunges on a skill-scaled cooldown (shortened by player/Bram NPC skills).
-- **G3: Dual-Choice Defense Plinths (Barricade vs Turret)**
+  - **Off-Center "Opposing Side" Camera & Default Zoom:** Shifts ahead in the hero's facing direction during both day and night so the player sits opposite targets, with unzoomed default portrait framing.
+  - **Bram Town Center Defense:** Bram guards Town Center at constant linear walk speed with walk leg animation and a front-slide AoE spear sweep.
+- **G3 (Current): Grid-Based Systems & Live Tuning Sheet (Propose & Review)**
+  - Express world layout, entity footprints, movement speeds (`gridUnits/s`), and weapon ranges (`gridUnits`) in a canonical **Grid Unit** scale (`1 tile = 2.5` world units), backed by an editable runtime balance sheet for live tweaking while playing.
+- **G4: Dual-Choice Defense Plinths (Barricade vs Turret)**
   - Choose between high-HP stalling **Barricades** and ranged **Turrets** on plinths (`±20`, `±26`) with visual damage/tier states.
-- **G4: Villager Mini-Shops**
+- **G5: Villager Mini-Shops**
   - Expand all 4 cutaway dollhouse interiors into themed mini-shops (**Pip** engineering mods, **Sage** heals & flora buffs, **Bram** auto-shoot & combat upgrades, **Milo** barter & loot charms) unlocked via Bond tiers.
-- **G5: Frontier Gloom Mist Risk/Reward**
+- **G6: Frontier Gloom Mist Risk/Reward**
   - Gloom Mist drag past `leftBorderX`/`rightBorderX` countered by purifying blooms or Sage's tonic, rewarding deep frontier mining/shards.
 
 ### Subsequent Polish Passes
 - **Assets Review Pass:** Modular silhouette clarity, cutaway room props, and optional `.glb` swap pass.
 - **Music & Audio Review Pass:** Dynamic day/night adaptive soundtrack layering and richer Patapon battle percussion.
 - **Systems Review Pass:** Progression pacing, save/persistence, and performance telemetry.
-- Enemies types and designs
-- Camera: the player should not be in the center but on the opposite side of the screen of the enemies he has to fight
-- Larger world, grid based
-- Village shape
+- Grid based systems (propose and review)
+- Enemies types and designs (propose and review)
+- Larger world, ecosystems (propose and review) 
+- Village shape (propose and review)
 - The more there is purity and villagers happy, the more the enemies should be aggressive
-- Review weapons and fighters types
-- Resource system
-- Flower/purification system
+- (propose and review) Weapons and fighters types
+- Resource system: Fishing, Farming, more interactions (propose and review)
+- Flower/purification system (propose and review)
+- Animation systems (propose and review)
+- Season system?
+- Active ragdolls?

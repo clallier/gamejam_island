@@ -98,6 +98,7 @@ describe('ModularAssemblyFactory + Providers', () => {
     expect(materials.getAllMaterials()).toHaveLength(keys.length);
 
     const extraParts: PartId[] = [
+      'weapon_spear',
       'furniture_tool_chest', 'furniture_hearth_stove', 'furniture_herb_shelf', 'furniture_tea_table',
       'furniture_training_dummy', 'furniture_banner_stand', 'furniture_curio_shelf', 'furniture_plush_rug',
       'prop_lantern', 'defense_turret', 'defense_barricade', 'enemy_gloom_sprite', 'enemy_gloom_brute',
@@ -120,7 +121,10 @@ describe('ModularAssemblyFactory + Providers', () => {
 
     const fakeRoot = new TransformNode('glb-node', scene);
     const fakeContainer = {
-      instantiateModelsToScene: vi.fn(() => ({ rootNodes: [fakeRoot] })),
+      instantiateModelsToScene: vi.fn((nameFn: (src: string) => string) => {
+        expect(nameFn('mesh0')).toBe('loaded-hat-hat_explorer-mesh0');
+        return { rootNodes: [fakeRoot] };
+      }),
     };
     (gltf as unknown as { containers: Map<PartId, unknown> }).containers.set('hat_explorer', fakeContainer);
     const glbPart = gltf.createPart('hat_explorer', 'loaded-hat', 'woodWarm');

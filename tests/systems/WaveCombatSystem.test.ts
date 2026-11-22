@@ -3,6 +3,7 @@ import { DEFENSE_KIND, ENEMY_KIND } from '../../src/ecs/constants.ts';
 import { IslandEcsWorld } from '../../src/ecs/IslandEcsWorld.ts';
 import {
   DEFENDER_ATTACK_DAMAGE,
+  DEFENDER_GUARD_RADIUS,
   ENEMY_BREACH_BORDER_PULL,
   ENEMY_BRUTE_DAMAGE,
   ENEMY_SPRITE_DAMAGE,
@@ -246,5 +247,61 @@ describe('DefenseStructureSystem & WaveCombatSystem', () => {
     const outOfRange = combat.step(0.5, 'day', 1, 1, 0, corruption, 0, 1);
     expect(outOfRange.shots).toEqual([]);
     expect(combat.applyPlayerShot(0, 1)).toBeNull();
+  });
+
+  it('detects incoming threat side for auto-dodge and knocks back or slays enemies hit by rolling road crates', () => {
+    const { ecs, combat } = setupCombatHarness();
+    expect(combat.findIncomingThreatSide(0)).toBe(0);
+
+    const rightRusher = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_RUSHER, 1.8, 1, 5, 4.9);
+    expect(combat.findIncomingThreatSide(0)).toBe(1);
+
+    const leftSprite = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, -1.2, -1, 24, 3.2);
+    expect(combat.findIncomingThreatSide(0)).toBe(-1);
+
+    const bruteEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_BRUTE, 9.5, 1, 56, 1.9);
+    const rusherCrateTarget = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 9.6, 1, 24, 3.2);
+    expect(combat.applyPropImpacts([])).toEqual([]);
+
+    const slain = combat.applyPropImpacts([
+      { x: 1.5, vx: 3.5 },
+      { x: 9.2, vx: 4.0 },
+    ]);
+    expect(slain.map((e) => e.eid)).toContain(rightRusher);
+    expect(ecs.isEntityAlive(rightRusher)).toBe(false);
+    // Brute has 0.25x knockback poise while Sprite receives full 2.8 crate knockback
+    expect(ecs.getComponents().Position.x[rusherCrateTarget]!).toBeCloseTo(12.4, 2);
+    expect(ecs.getComponents().Position.x[bruteEid]!).toBeCloseTo(10.2, 2);
+    // Left sprite still alive so suppress unused var lint
+    expect(ecs.isEntityAlive(leftSprite)).toBe(true);
+  });
+
+  it('keeps Bram stationed near Town Center fighting approaching enemies with fast spear thrusts', () => {
+    const { ecs, combat, corruption } = setupCombatHarness();
+
+    // Far enemy outside Town Center guard zone (x = -40) does not lure Bram away from center
+    const farEnemy = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, -40, -1, 24, 0);
+    const quietNight = combat.step(0.1, 'night', 1, 1, 0, corruption);
+    expect(quietNight.defenderPatrolX).toBe(5);
+    expect(ecs.getComponents().Enemy.hp[farEnemy]).toBe(24);
+
+    // Approaching pack of 9 enemies near Town Center receives a full front-AoE spear slide sweep (ignoring behind)
+    const nearEnemy = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 1.5, 1, 40, 0);
+    const rushers = Array.from({ length: 8 }, (_, idx) =>
+      ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_RUSHER, 1.7 + idx * 0.28, 1, 14, 0, ((idx % 5) - 2) * 0.24),
+    );
+    const behindEnemy = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 5.8, 1, 24, 0);
+    const spearFrame = combat.step(0.1, 'night', 1, 1, 6, corruption);
+    expect(spearFrame.shots.some((s) => s.source === 'defender')).toBe(true);
+    expect(ecs.getComponents().Enemy.hp[nearEnemy]).toBe(40 - (DEFENDER_ATTACK_DAMAGE + 6));
+    expect(ecs.getComponents().Position.x[nearEnemy]!).toBeCloseTo(3.1, 2);
+    expect(rushers.every((eid) => !ecs.isEntityAlive(eid))).toBe(true);
+    expect(ecs.getComponents().Enemy.hp[behindEnemy]).toBe(24);
+    expect(Math.abs(spearFrame.defenderPatrolX!)).toBeLessThanOrEqual(DEFENDER_GUARD_RADIUS);
+
+    // Rapid 0.18s spear cooldown strikes again and finishes the Sprite cleanly
+    const followUp = combat.step(0.18, 'night', 1, 1, 6, corruption);
+    expect(followUp.shots.some((s) => s.source === 'defender')).toBe(true);
+    expect(ecs.isEntityAlive(nearEnemy)).toBe(false);
   });
 });

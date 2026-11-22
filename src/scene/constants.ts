@@ -22,3 +22,6 @@ export const DOLLHOUSE_Z = 3.15;
 
 export const LILYPAD_XS: readonly number[] = [-35, -21, -9, 8, 22, 36];
 export const ROAD_PROP_XS: readonly number[] = [-17.5, -9.2, 9.2, 17.5];
+export const ROAD_CRATE_IMPACT_SPEED = 1.6;
+export const ROAD_CRATE_DUST_COOLDOWN = 0.18;
+export const ROAD_CRATE_MAX_ABS_X = 52;

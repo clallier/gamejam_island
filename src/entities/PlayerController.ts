@@ -16,6 +16,8 @@ import type { InputSnapshot } from '../engine/InputController.ts';
 import type { PhysicsWorld } from '../engine/PhysicsWorld.ts';
 import type { IslandStrip } from '../world/IslandStrip.ts';
 import {
+  PLAYER_AUTODODGE_HOP_SPEED,
+  PLAYER_AUTODODGE_JUMP_SCALE,
   PLAYER_COYOTE_SECONDS,
   PLAYER_JUMP_IMPULSE,
   PLAYER_MAX_PEBBLES,
@@ -25,6 +27,15 @@ import {
   PLAYER_TOSS_SPEED_X,
   PLAYER_TOSS_SPEED_Y,
 } from './constants.ts';
+import { WalkAnimator } from './WalkAnimator.ts';
+
+/**
+ * Per-frame locomotion events emitted by `PlayerController.update` for dust VFX.
+ */
+export interface PlayerFrameEvents {
+  readonly stepped: boolean;
+  readonly landed: boolean;
+}
 
 /**
  * 1D Havok physics player controller pairing an invisible Z-locked capsule
@@ -40,10 +51,11 @@ export class PlayerController {
   private readonly collider: Mesh;
   private readonly aggregate: PhysicsAggregate;
   private readonly visualRoot: TransformNode;
+  private readonly walkAnim: WalkAnimator;
   private readonly pebbles: Mesh[] = [];
   private facing = 1;
   private coyoteTimer = 0;
-  private stridePhase = 0;
+  private autoDodgeCooldown = 0;
   private squashY = 1;
   private wasGrounded = true;
 
@@ -72,26 +84,69 @@ export class PlayerController {
     this.collider = this._createColliderMesh();
     this.aggregate = this.physics.attachDynamicCapsule(this.collider, 1);
     this.visualRoot = this._attachVisualModel(model);
+    this.walkAnim = new WalkAnimator(model);
   }
 
   /**
-   * Advances 1D movement, jumping, pebble tossing, Z-lock, and toybox bounce.
+   * Advances 1D movement, pebble tossing, Z-lock, auto-dodge cooldown, and toybox bounce.
    *
    * @param deltaSeconds Frame delta in seconds.
    * @param input Current `InputSnapshot` from keyboard and touch HUD.
+   * @returns Frame locomotion events (`stepped`, `landed`) for footstep and landing dust VFX.
+   * @throws Error Never thrown.
    * @example
-   * player.update(dt, input.consumeSnapshot());
+   * const events = player.update(dt, input.consumeSnapshot());
    */
-  public update(deltaSeconds: number, input: InputSnapshot): void {
+  public update(deltaSeconds: number, input: InputSnapshot): PlayerFrameEvents {
+    const dt = Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
+    this.autoDodgeCooldown = Math.max(0, this.autoDodgeCooldown - dt);
     this._enforceOneAxisBounds();
     const vel = this.physics.getLinearVelocity(this.aggregate);
-    const grounded = this._updateGroundedState(deltaSeconds, vel.y);
-    if (grounded && !this.wasGrounded) this.squashY = 0.78;
+    const grounded = this._updateGroundedState(dt, vel.y);
+    const landed = grounded && !this.wasGrounded;
+    if (landed) this.squashY = 0.78;
     this.wasGrounded = grounded;
     this._applyHorizontalVelocity(input.moveX, vel.y);
-    if (input.jumpPressed && grounded) this._triggerJump();
     if (input.tossPressed) this._tossPebble();
-    this._animateVisual(deltaSeconds, input.moveX, grounded);
+    const walk = this.walkAnim.update(dt, Math.abs(input.moveX) * PLAYER_MOVE_SPEED, grounded);
+    this._animateVisual(dt, walk.strideScaleY);
+    return { stepped: walk.stepped, landed };
+  }
+
+  /**
+   * Automatically vaults the hero away from an incoming enemy lunge when grounded and off cooldown.
+   *
+   * @param threatSide Incoming threat side (`-1` left, `1` right).
+   * @param cooldownSeconds Cooldown duration in seconds after triggering.
+   * @returns `true` if auto-dodge vault fired, else `false`.
+   * @throws Error Never thrown.
+   * @example
+   * const dodged = player.triggerAutoDodge(1, 2.5);
+   */
+  public triggerAutoDodge(threatSide: -1 | 1, cooldownSeconds: number): boolean {
+    if (this.autoDodgeCooldown > 0 || !this.wasGrounded) return false;
+    this.coyoteTimer = 0;
+    this.wasGrounded = false;
+    this.squashY = 1.28;
+    const safeCooldown = Number.isFinite(cooldownSeconds) ? Math.max(0.5, cooldownSeconds) : 0.5;
+    this.autoDodgeCooldown = safeCooldown;
+    this.physics.setLinearVelocity(
+      this.aggregate,
+      new Vector3(-threatSide * PLAYER_AUTODODGE_HOP_SPEED, PLAYER_JUMP_IMPULSE * PLAYER_AUTODODGE_JUMP_SCALE, 0),
+    );
+    return true;
+  }
+
+  /**
+   * Returns remaining cooldown seconds before the next auto-dodge vault can trigger.
+   *
+   * @returns Remaining cooldown in seconds (`0` when ready).
+   * @throws Error Never thrown.
+   * @example
+   * expect(player.getAutoDodgeCooldown()).toBeGreaterThan(0);
+   */
+  public getAutoDodgeCooldown(): number {
+    return this.autoDodgeCooldown;
   }
 
   /**
@@ -167,13 +222,6 @@ export class PlayerController {
     if (moveX !== 0) this.facing = moveX > 0 ? 1 : -1;
   }
 
-  private _triggerJump(): void {
-    this.coyoteTimer = 0;
-    this.squashY = 1.24;
-    const vel = this.physics.getLinearVelocity(this.aggregate);
-    this.physics.setLinearVelocity(this.aggregate, new Vector3(vel.x, PLAYER_JUMP_IMPULSE, 0));
-  }
-
   private _tossPebble(): void {
     this.squashY = 0.88;
     if (this.pebbles.length >= PLAYER_MAX_PEBBLES) {
@@ -187,22 +235,18 @@ export class PlayerController {
     this.pebbles.push(pebble);
   }
 
-  private _animateVisual(deltaSeconds: number, moveX: number, grounded: boolean): void {
+  private _animateVisual(deltaSeconds: number, strideScaleY: number): void {
     this.visualRoot.position.copyFrom(this.collider.position);
     const targetYaw = this.facing > 0 ? 0 : Math.PI;
     const alpha = 1 - Math.exp(-14 * Math.max(0, deltaSeconds));
     this.visualRoot.rotation.y = Scalar.Lerp(this.visualRoot.rotation.y, targetYaw, alpha);
-    this._applySquashAndStride(deltaSeconds, moveX, grounded);
+    this._applySquashAndStride(deltaSeconds, strideScaleY);
   }
 
-  private _applySquashAndStride(deltaSeconds: number, moveX: number, grounded: boolean): void {
+  private _applySquashAndStride(deltaSeconds: number, strideScaleY: number): void {
     const damp = 1 - Math.exp(-14 * Math.max(0, deltaSeconds));
     this.squashY = Scalar.Lerp(this.squashY, 1, damp);
-    let targetY = this.squashY;
-    if (Math.abs(moveX) > 0.1 && grounded) {
-      this.stridePhase += deltaSeconds * 13;
-      targetY *= 1 + Math.abs(Math.sin(this.stridePhase)) * 0.08;
-    }
+    const targetY = this.squashY * strideScaleY;
     const invXZ = 1 / Math.sqrt(Math.max(0.5, targetY));
     this.visualRoot.scaling.set(invXZ, targetY, invXZ);
   }

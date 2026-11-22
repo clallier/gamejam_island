@@ -6,7 +6,9 @@ import {
   DEFENDER_ATTACK_COOLDOWN,
   DEFENDER_ATTACK_DAMAGE,
   DEFENDER_ATTACK_RANGE,
+  DEFENDER_GUARD_RADIUS,
   DEFENDER_PATROL_SPEED,
+  DEFENDER_SPEAR_KNOCKBACK,
   ENEMY_BREACH_BORDER_PULL,
   ENEMY_BRUTE_COOLDOWN,
   ENEMY_BRUTE_DAMAGE,
@@ -21,12 +23,16 @@ import {
   ENEMY_SPRITE_DAMAGE,
   ENEMY_SPRITE_HP,
   ENEMY_SPRITE_SPEED,
+  PLAYER_AUTODODGE_RANGE,
   PLAYER_AUTOSHOOT_COOLDOWN,
   PLAYER_AUTOSHOOT_DAMAGE,
   PLAYER_AUTOSHOOT_RANGE,
   PLAYER_SHOT_DAMAGE,
   PLAYER_SHOT_KNOCKBACK,
   PLAYER_SHOT_RANGE,
+  ROAD_CRATE_HIT_RADIUS,
+  ROAD_CRATE_IMPACT_DAMAGE,
+  ROAD_CRATE_KNOCKBACK,
   TOWN_HEART_MAX_HP,
   TURRET_BASE_COOLDOWN,
   TURRET_BASE_DAMAGE,
@@ -36,12 +42,12 @@ import {
 } from './constants.ts';
 
 /**
- * Emitted when a turret or player auto-shoot bolt strikes an enemy entity.
+ * Emitted when a turret, player bow, or Defender spear strikes an enemy entity.
  */
 export interface CombatShotEvent {
   readonly fromX: number;
   readonly toX: number;
-  readonly source: 'turret' | 'player';
+  readonly source: 'turret' | 'player' | 'defender';
 }
 
 export type TurretShotEvent = CombatShotEvent;
@@ -149,7 +155,7 @@ export class WaveCombatSystem {
     if (playerX !== undefined) {
       this._stepPlayerAutoShoot(safeDt, playerX, playerFacing, playerAutoShootMultiplier, shots);
     }
-    this._stepDefenderPatrol(safeDt, phase, defenderDamageBonus);
+    this._stepDefenderPatrol(safeDt, phase, defenderDamageBonus, shots);
     const slain = this._collectAndDespawnSlain();
     this._checkTownHeartDefeat();
     return this._buildResult(shots, slain, defenseDestroyed, phase);
@@ -178,6 +184,42 @@ export class WaveCombatSystem {
     const hitX = this.ecs.getComponents().Position.x[targetEid] ?? playerX;
     if (killed) this.ecs.despawnEntity(targetEid);
     return { x: hitX, killed };
+  }
+
+  /**
+   * Bowls moving Havok road crates through enemies along the road, applying impact damage and knockback.
+   *
+   * @param crates Active fast-moving crate positions and horizontal velocities.
+   * @returns List of enemies defeated by crate impacts.
+   * @throws Error Never thrown.
+   * @example
+   * const slain = combat.applyPropImpacts([{ x: 9.2, vx: 4.5 }]);
+   */
+  public applyPropImpacts(
+    crates: ReadonlyArray<{ readonly x: number; readonly vx: number }>,
+  ): SlainEnemyEvent[] {
+    if (this.isGameOver || crates.length === 0) return [];
+    const slain: SlainEnemyEvent[] = [];
+    for (const crate of crates) {
+      this._hitEnemiesWithCrate(crate.x, crate.vx, slain);
+    }
+    return slain;
+  }
+
+  /**
+   * Detects the side (`-1` left, `1` right) of the nearest enemy threatening `playerX` within `radius`.
+   *
+   * @param playerX Current player X coordinate.
+   * @param radius Threat detection radius around `playerX` (defaults to `PLAYER_AUTODODGE_RANGE`).
+   * @returns `-1` if threat is left, `1` if threat is right, or `0` when clear.
+   * @throws Error Never thrown.
+   * @example
+   * const side = combat.findIncomingThreatSide(player.getX());
+   */
+  public findIncomingThreatSide(playerX: number, radius = PLAYER_AUTODODGE_RANGE): -1 | 1 | 0 {
+    const eid = this._findNearestLivingEnemy(playerX, radius);
+    if (eid === -1) return 0;
+    return (this.ecs.getComponents().Position.x[eid] ?? playerX) >= playerX ? 1 : -1;
   }
 
   /**
@@ -216,7 +258,8 @@ export class WaveCombatSystem {
    */
   public healTownHeart(amount: number): void {
     if (this.isGameOver) return;
-    this.townHeartHp = Math.min(TOWN_HEART_MAX_HP, this.townHeartHp + Math.max(0, amount));
+    const safeAmount = Number.isFinite(amount) ? Math.max(0, amount) : 0;
+    this.townHeartHp = Math.min(TOWN_HEART_MAX_HP, this.townHeartHp + safeAmount);
   }
 
   /**
@@ -443,22 +486,71 @@ export class WaveCombatSystem {
     return nextHp <= 0;
   }
 
-  private _stepDefenderPatrol(dt: number, phase: DayPhase, bonusDamage: number): void {
+  private _hitEnemiesWithCrate(crateX: number, crateVx: number, slain: SlainEnemyEvent[]): void {
+    const { Position, Enemy } = this.ecs.getComponents();
+    const originX = crateX - Math.sign(crateVx || 1) * 0.5;
+    for (const eid of this.ecs.queryEnemies()) {
+      if (!this.ecs.isEntityAlive(eid) || (Enemy.hp[eid] ?? 0) <= 0) continue;
+      if (Math.abs((Position.x[eid] ?? 0) - crateX) > ROAD_CRATE_HIT_RADIUS) continue;
+      if (!this._damageEnemy(eid, ROAD_CRATE_IMPACT_DAMAGE, originX, ROAD_CRATE_KNOCKBACK)) continue;
+      slain.push({ eid, x: Position.x[eid] ?? crateX, kind: Enemy.kind[eid] ?? 0 });
+      this.ecs.despawnEntity(eid);
+    }
+  }
+
+  private _stepDefenderPatrol(
+    dt: number,
+    phase: DayPhase,
+    bonusDamage: number,
+    shots: CombatShotEvent[],
+  ): void {
     this.defenderCooldown = Math.max(0, this.defenderCooldown - dt);
-    const targetEid = phase === 'night' ? this._findNearestLivingEnemy(this.defenderX, 60) : -1;
+    const guardRange = DEFENDER_GUARD_RADIUS + DEFENDER_ATTACK_RANGE;
+    const targetEid = phase === 'night' ? this._findNearestLivingEnemy(0, guardRange) : -1;
     if (targetEid === -1) {
-      const dxHome = WaveCombatSystem.DEFENDER_HOME_X - this.defenderX;
-      this.defenderX += Math.sign(dxHome) * Math.min(Math.abs(dxHome), DEFENDER_PATROL_SPEED * dt);
+      this._moveDefenderToward(WaveCombatSystem.DEFENDER_HOME_X, dt);
       return;
     }
-    const dx = (this.ecs.getComponents().Position.x[targetEid] ?? 0) - this.defenderX;
-    if (Math.abs(dx) > DEFENDER_ATTACK_RANGE) {
-      this.defenderX += Math.sign(dx) * Math.min(Math.abs(dx), DEFENDER_PATROL_SPEED * dt);
-      return;
+    const enemyX = this.ecs.getComponents().Position.x[targetEid] ?? 0;
+    const guardTargetX = Math.max(-DEFENDER_GUARD_RADIUS, Math.min(DEFENDER_GUARD_RADIUS, enemyX));
+    this._moveDefenderToward(guardTargetX, dt);
+    if (Math.abs(enemyX - this.defenderX) > DEFENDER_ATTACK_RANGE || this.defenderCooldown > 0) return;
+    this._executeDefenderSpearThrust(enemyX, bonusDamage, shots);
+  }
+
+  private _executeDefenderSpearThrust(
+    enemyX: number,
+    bonusDamage: number,
+    shots: CombatShotEvent[],
+  ): void {
+    const { Position, Enemy } = this.ecs.getComponents();
+    const delta = enemyX - this.defenderX;
+    const thrustDir = Math.abs(delta) < 0.05 ? (enemyX >= 0 ? 1 : -1) : (delta > 0 ? 1 : -1);
+    let hitAny = false;
+    for (const eid of this.ecs.queryEnemies()) {
+      if (!this.ecs.isEntityAlive(eid) || (Enemy.hp[eid] ?? 0) <= 0) continue;
+      const ex = Position.x[eid] ?? 0;
+      if ((ex - this.defenderX) * thrustDir < -0.4 || Math.abs(ex - this.defenderX) > DEFENDER_ATTACK_RANGE) continue;
+      this._strikeWithSpear(eid, bonusDamage);
+      hitAny = true;
     }
-    if (this.defenderCooldown > 0) return;
-    this._damageEnemy(targetEid, DEFENDER_ATTACK_DAMAGE + bonusDamage, this.defenderX, 0);
     this.defenderCooldown = DEFENDER_ATTACK_COOLDOWN;
+    if (hitAny) {
+      shots.push({ fromX: this.defenderX, toX: this.defenderX + thrustDir * DEFENDER_ATTACK_RANGE, source: 'defender' });
+    }
+  }
+
+  private _strikeWithSpear(eid: number, bonusDamage: number): void {
+    const isBrute = this.ecs.getComponents().Enemy.kind[eid] === ENEMY_KIND.GLOOM_BRUTE;
+    const dmg = isBrute
+      ? Math.round((DEFENDER_ATTACK_DAMAGE + bonusDamage) * 0.5)
+      : DEFENDER_ATTACK_DAMAGE + bonusDamage;
+    this._damageEnemy(eid, dmg, 0, isBrute ? 0 : DEFENDER_SPEAR_KNOCKBACK);
+  }
+
+  private _moveDefenderToward(targetX: number, dt: number): void {
+    const dx = targetX - this.defenderX;
+    this.defenderX += Math.sign(dx) * Math.min(Math.abs(dx), DEFENDER_PATROL_SPEED * dt);
   }
 
   private _findNearestLivingEnemy(originX: number, maxRange: number): number {

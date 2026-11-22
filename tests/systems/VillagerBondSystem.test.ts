@@ -41,10 +41,11 @@ describe('VillagerBondSystem', () => {
     expect(bonds.getPlantPushMultiplier()).toBe(1.8);
     expect(bonds.getDawnPetalBonus()).toBe(2);
 
-    // Defender reaches Lv 2 (30 XP -> 2x Scrub Power)
+    // Defender reaches Lv 2 (30 XP -> 2x Scrub Power & 3.25s Auto-Dodge)
     bonds.hangOut('defender', inventory);
     bonds.giveGift('defender', inventory);
     expect(bonds.getMoundHitDamage()).toBe(2);
+    expect(bonds.getAutoDodgeCooldown()).toBe(3.25);
   });
 
   it('grants Merchant hangout petal bonus at Lv 2 and Shard bonus at Lv 3, and blocks unaffordable gifts', () => {
@@ -95,7 +96,7 @@ describe('VillagerBondSystem', () => {
     inventory.add('petals', 50);
     inventory.add('shards', 50);
 
-    // Baseline Lv1 perks across all 7 getters
+    // Baseline Lv1 perks across all getters including skill-scaled auto-dodge cooldown
     expect(bonds.getHarvestBonus()).toBe(0);
     expect(bonds.getPlantPushMultiplier()).toBe(1);
     expect(bonds.getMoundHitDamage()).toBe(1);
@@ -103,6 +104,7 @@ describe('VillagerBondSystem', () => {
     expect(bonds.getDawnPetalBonus()).toBe(0);
     expect(bonds.getTurretFireRateMultiplier()).toBe(1);
     expect(bonds.getDefenderBonusDamage()).toBe(0);
+    expect(bonds.getAutoDodgeCooldown()).toBe(4.0);
 
     // Exact Lv 2 (30 XP) and Lv 3 (80 XP) thresholds via hangOuts & furnish/gift
     const roles: NpcRoleId[] = ['engineer', 'medic', 'defender', 'merchant'];
@@ -135,6 +137,7 @@ describe('VillagerBondSystem', () => {
     expect(bonds.getDawnPetalBonus()).toBe(2);
     expect(bonds.getTurretFireRateMultiplier()).toBe(1.25);
     expect(bonds.getDefenderBonusDamage()).toBe(6);
+    expect(bonds.getAutoDodgeCooldown()).toBe(2.5);
 
     // Further hangOut at Lv 3 does not report leveledUp
     expect(bonds.hangOut('engineer', inventory)?.leveledUp).toBe(false);

@@ -66,7 +66,7 @@ export class BlueprintRegistry {
     },
     defender: {
       hat: 'hat_helm',
-      tool: 'tool_shield',
+      tool: 'weapon_spear',
       palette: 'defender',
       furniture: 'furniture_rack',
     },

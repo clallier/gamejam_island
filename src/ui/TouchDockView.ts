@@ -29,7 +29,6 @@ export class TouchDockView {
   private readonly tossBtn: ActionButtonParts;
   private readonly plantBtn: ActionButtonParts;
   private readonly inspectBtn: ActionButtonParts;
-  private readonly jumpBtn: ActionButtonParts;
   private readonly promptPill: Rectangle;
 
   /**
@@ -49,8 +48,7 @@ export class TouchDockView {
     this.tossBtn = this._createActionButton('btn-toss', '🎯', 'Toss');
     this.plantBtn = this._createActionButton('btn-plant', '🌱', 'Plant');
     this.inspectBtn = this._createActionButton('btn-inspect', '🏠', 'Act');
-    this.jumpBtn = this._createActionButton('btn-jump', '⬆', 'Jump');
-    [this.tossBtn, this.plantBtn, this.inspectBtn, this.jumpBtn].forEach((b) =>
+    [this.tossBtn, this.plantBtn, this.inspectBtn].forEach((b) =>
       this.actionsPanel.addControl(b.button),
     );
     this.promptPill = this._createPromptPill();
@@ -72,7 +70,6 @@ export class TouchDockView {
     this._wireTap(this.tossBtn.button, 'toss', input);
     this._wireTap(this.plantBtn.button, 'plant', input);
     this._wireTap(this.inspectBtn.button, 'interact', input);
-    this._wireTap(this.jumpBtn.button, 'jump', input);
   }
 
   /**
@@ -90,7 +87,7 @@ export class TouchDockView {
       btn.heightInPixels = metrics.padButtonSize;
     });
     this.tossBtn.button.isVisible = !metrics.isCompact;
-    [this.tossBtn, this.plantBtn, this.inspectBtn, this.jumpBtn].forEach((parts) => {
+    [this.tossBtn, this.plantBtn, this.inspectBtn].forEach((parts) => {
       this._styleActionButton(parts, metrics);
     });
     this.promptPill.isVisible = metrics.showDesktopPrompt;
@@ -192,7 +189,7 @@ export class TouchDockView {
     pill.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
     pill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
     pill.isHitTestVisible = false;
-    const text = new TextBlock('dock-prompt-text', 'A/D Move · Space Jump · E Act/Room · P Plant · Shift Toss');
+    const text = new TextBlock('dock-prompt-text', 'A/D Move · E Act/Room · P Plant · Shift Toss · Auto-Dodge');
     text.color = HUD_THEME.textMuted;
     text.fontFamily = HUD_THEME.fontFamily;
     text.fontSizeInPixels = 12;

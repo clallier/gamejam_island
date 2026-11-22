@@ -75,6 +75,7 @@ export class ProceduralPartProvider implements IMeshPartProvider {
       hat_beret: (r, p, k) => this._buildHatBeret(r, p, k),
       pack_satchel: (r, p, k) => this._box(r, `${p}-pack`, 0.42, 0.48, 0.24, [0, 0, 0], k),
       weapon_slingshot: (r, p, k) => this._buildSlingshot(r, p, k),
+      weapon_spear: (r, p, k) => this._buildSpear(r, p, k),
       tool_wrench: (r, p, k) => this._buildWrench(r, p, k),
       tool_watering_can: (r, p, k) => this._buildWateringCan(r, p, k),
       tool_shield: (r, p, k) => this._box(r, `${p}-shield`, 0.14, 0.62, 0.52, [0, 0, 0], k),
@@ -154,6 +155,11 @@ export class ProceduralPartProvider implements IMeshPartProvider {
     const prongR = this._cyl(r, `${p}-pr`, 0.28, 0.08, 0.08, [0.1, 0.24, 0], k);
     prongL.rotation.z = 0.35;
     prongR.rotation.z = -0.35;
+  }
+
+  private _buildSpear(r: TransformNode, p: string, k: PaletteKey): void {
+    this._cyl(r, `${p}-shaft`, 1.45, 0.07, 0.08, [0, 0.48, 0], k);
+    this._cyl(r, `${p}-head`, 0.36, 0.01, 0.16, [0, 1.32, 0], 'stoneWarm');
   }
 
   private _buildWrench(r: TransformNode, p: string, k: PaletteKey): void {

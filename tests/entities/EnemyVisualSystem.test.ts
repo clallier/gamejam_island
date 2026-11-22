@@ -98,9 +98,10 @@ describe('EnemyVisualSystem (GPU ThinInstance Horde)', () => {
     // Reuses pooled turret tracer & player bow arrow without allocating new meshes
     system.spawnTracer(-20, -25, 'turret');
     system.spawnTracer(0, -8, 'player');
-    expect(system.getActiveTracerCount()).toBe(1);
+    system.spawnTracer(2, 5, 'defender');
+    expect(system.getActiveTracerCount()).toBe(2);
     expect(system.getActiveArrowCount()).toBe(1);
-    expect(scene.getMeshByName('tracer-1')).toBeNull();
+    expect(scene.getMeshByName('tracer-2')).toBeNull();
     expect(scene.getMeshByName('arrow-1')).toBeNull();
 
     system.update(0.4, 0.25);
@@ -111,5 +112,22 @@ describe('EnemyVisualSystem (GPU ThinInstance Horde)', () => {
     expect(scene.getMeshByName('tracer-0')).toBeNull();
     expect(scene.getMeshByName('arrow-0')).toBeNull();
     expect(scene.getMeshByName('spark-0')).toBeNull();
+  });
+
+  it('caps active tracer, arrow, and firework spark pools at maximum limits and guards NaN dt', () => {
+    const { system } = createHarness();
+
+    for (let i = 0; i < 36; i++) system.spawnTracer(-20, -25, 'turret');
+    for (let i = 0; i < 28; i++) system.spawnArrow(0, i % 2 === 0 ? 8 : -8);
+    for (let i = 0; i < 14; i++) system.spawnFirework(i);
+
+    expect(system.getActiveTracerCount()).toBe(32);
+    expect(system.getActiveArrowCount()).toBe(24);
+    expect(system.getActiveSparkCount()).toBe(48);
+
+    system.update(0.1, Number.NaN);
+    expect(system.getActiveTracerCount()).toBe(32);
+    expect(system.getActiveArrowCount()).toBe(24);
+    expect(system.getActiveSparkCount()).toBe(48);
   });
 });

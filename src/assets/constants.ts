@@ -27,6 +27,7 @@ export type PartId =
   | 'hat_beret'
   | 'pack_satchel'
   | 'weapon_slingshot'
+  | 'weapon_spear'
   | 'tool_wrench'
   | 'tool_watering_can'
   | 'tool_shield'
