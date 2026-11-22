@@ -29,6 +29,8 @@ export class TopBarView {
   private readonly zoneText: TextBlock;
   private readonly cycleBtn: Button;
   private readonly cycleBtnText: TextBlock;
+  private readonly heartPill: Rectangle;
+  private readonly heartText: TextBlock;
   private readonly purityLabel: TextBlock;
   private readonly purityTrack: Rectangle;
   private readonly purityFill: Rectangle;
@@ -37,8 +39,10 @@ export class TopBarView {
   private readonly pillBoxes: Rectangle[] = [];
   private readonly toastPill: Rectangle;
   private readonly toastText: TextBlock;
+  private readonly gameOverBanner: Rectangle;
   private toastRemaining = 0;
   private onCyclePhase: (() => void) | null = null;
+  private onRestart: (() => void) | null = null;
   private currentTrackWidth = TopBarView.TRACK_WIDTH_DESKTOP;
 
   /**
@@ -57,6 +61,8 @@ export class TopBarView {
     this.cycleBtn = cyclePair.button;
     this.cycleBtnText = cyclePair.label;
     this.statusRow.addControl(this.cycleBtn);
+    this.heartText = this._addTextPill(this.metricsRow, 'hud-heart', '❤ 100', HUD_THEME.accentAmber, HUD_THEME.borderWarm);
+    this.heartPill = this.pillBoxes[this.pillBoxes.length - 1]!;
     const purity = this._createPurityPill();
     this.purityLabel = purity.label;
     this.purityTrack = purity.track;
@@ -67,9 +73,8 @@ export class TopBarView {
     const toast = this._createToastPill();
     this.toastPill = toast.pill;
     this.toastText = toast.text;
-    adt.addControl(this.statusRow);
-    adt.addControl(this.metricsRow);
-    adt.addControl(this.toastPill);
+    this.gameOverBanner = this._createGameOverBanner();
+    this._mountControls(adt);
   }
 
   /**
@@ -118,6 +123,30 @@ export class TopBarView {
   }
 
   /**
+   * Registers the callback fired when the user clicks `Restart Island` on game over.
+   *
+   * @param callback Restart handler restoring Town Heart HP and wave state.
+   * @throws Error Never thrown.
+   * @example
+   * topBar.setOnRestart(() => app.restart());
+   */
+  public setOnRestart(callback: () => void): void {
+    this.onRestart = callback;
+  }
+
+  /**
+   * Toggles visibility of the centered Town Heart fallen restart banner.
+   *
+   * @param visible `true` when game over, `false` during active play.
+   * @throws Error Never thrown.
+   * @example
+   * topBar.setGameOver(combat.isOver());
+   */
+  public setGameOver(visible: boolean): void {
+    this.gameOverBanner.isVisible = visible;
+  }
+
+  /**
    * Repositions and resizes top-bar rows for compact portrait or desktop widths.
    *
    * @param metrics Computed `HudLayoutMetrics`.
@@ -155,12 +184,18 @@ export class TopBarView {
     zone: IslandZone,
     purityRatio: number,
     inventory: Record<ResourceKey, number>,
+    heartHp = 100,
+    activeEnemies = 0,
   ): void {
     const nextPhase = NEXT_PHASE_MAP[time.phase];
-    this.phaseText.text = `Day ${time.dayNumber} · ${PHASE_LABELS[time.phase]}`;
+    const waveTag = activeEnemies > 0 ? ` · 👾 ${activeEnemies}` : '';
+    this.phaseText.text = `Day ${time.dayNumber} · ${PHASE_LABELS[time.phase]}${waveTag}`;
     this.zoneText.text = ZONE_LABELS[zone];
+    const safeHeart = Number.isFinite(heartHp) ? heartHp : 0;
+    const safePurity = Number.isFinite(purityRatio) ? purityRatio : 0;
+    this.heartText.text = `❤ ${Math.max(0, Math.round(safeHeart))}`;
     this.cycleBtnText.text = `☀ Preview ${PHASE_LABELS[nextPhase]}`;
-    const clamped = Math.max(0, Math.min(1, purityRatio));
+    const clamped = Math.max(0, Math.min(1, safePurity));
     this.purityFill.widthInPixels = Math.max(4, Math.round(this.currentTrackWidth * clamped));
     this.purityText.text = `${Math.round(clamped * 100)}%`;
     this._updateResourceCounts(inventory);
@@ -303,20 +338,22 @@ export class TopBarView {
 
   private _applyFontAndWidths(metrics: HudLayoutMetrics): void {
     const compact = metrics.isCompact;
-    const scale = compact ? Math.min(1, (metrics.viewportWidth - 20) / 364) : 1;
-    this.pillBoxes[0]!.widthInPixels = Math.round((compact ? 102 : 114) * scale);
-    this.pillBoxes[1]!.widthInPixels = Math.round((compact ? 112 : 124) * scale);
-    this.cycleBtn.widthInPixels = Math.round((compact ? 124 : 140) * scale);
-    this.pillBoxes[3]!.widthInPixels = Math.round((compact ? 154 : 176) * scale);
-    this.pillBoxes[4]!.widthInPixels = Math.round((compact ? 186 : 220) * scale);
-    this.purityLabel.widthInPixels = compact ? 38 : 42;
-    this._scaleAllTextFonts(metrics.fontSizeSm, compact ? 41 : 48);
+    const scale = compact ? Math.min(1, (metrics.viewportWidth - 20) / 390) : 1;
+    this.pillBoxes[0]!.widthInPixels = Math.round((compact ? 112 : 126) * scale);
+    this.pillBoxes[1]!.widthInPixels = Math.round((compact ? 104 : 118) * scale);
+    this.cycleBtn.widthInPixels = Math.round((compact ? 118 : 136) * scale);
+    this.heartPill.widthInPixels = Math.round((compact ? 58 : 66) * scale);
+    this.pillBoxes[4]!.widthInPixels = Math.round((compact ? 136 : 168) * scale);
+    this.pillBoxes[5]!.widthInPixels = Math.round((compact ? 168 : 210) * scale);
+    this.purityLabel.widthInPixels = compact ? 36 : 42;
+    this._scaleAllTextFonts(metrics.fontSizeSm, compact ? 38 : 46);
   }
 
   private _scaleAllTextFonts(size: number, resWidth: number): void {
     const labels = [
       this.phaseText,
       this.zoneText,
+      this.heartText,
       this.cycleBtnText,
       this.purityLabel,
       this.purityText,
@@ -326,6 +363,51 @@ export class TopBarView {
       tb.fontSizeInPixels = size;
       tb.widthInPixels = resWidth;
     }
+  }
+
+  private _mountControls(adt: AdvancedDynamicTexture): void {
+    adt.addControl(this.statusRow);
+    adt.addControl(this.metricsRow);
+    adt.addControl(this.toastPill);
+    adt.addControl(this.gameOverBanner);
+  }
+
+  private _createGameOverBanner(): Rectangle {
+    const banner = this._makePillRect('hud-gameover-banner', 270, HUD_THEME.accentNeon, HUD_THEME.surfaceCard);
+    banner.heightInPixels = 104;
+    banner.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    banner.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+    banner.isPointerBlocker = true;
+    banner.isVisible = false;
+    banner.addControl(this._buildGameOverStack());
+    return banner;
+  }
+
+  private _buildGameOverStack(): StackPanel {
+    const stack = new StackPanel('hud-gameover-stack');
+    stack.isVertical = true;
+    stack.spacing = 10;
+    stack.isHitTestVisible = false;
+    const title = this._makeLabel('hud-gameover-title', 'Town Heart Fallen', HUD_THEME.accentNeon);
+    title.heightInPixels = 28;
+    title.fontSizeInPixels = 18;
+    stack.addControl(title);
+    stack.addControl(this._createRestartButton());
+    return stack;
+  }
+
+  private _createRestartButton(): Button {
+    const btn = new Button('btn-restart-island');
+    btn.widthInPixels = 160;
+    btn.heightInPixels = 36;
+    btn.cornerRadius = 12;
+    btn.thickness = 1.5;
+    btn.color = HUD_THEME.borderAccent;
+    btn.background = HUD_THEME.surfaceButton;
+    btn.isPointerBlocker = true;
+    btn.addControl(this._makeLabel('btn-restart-label', 'Restart Island', HUD_THEME.textPrimary));
+    btn.onPointerClickObservable.add(() => this.onRestart?.());
+    return btn;
   }
 
   private _createToastPill(): { pill: Rectangle; text: TextBlock } {

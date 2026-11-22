@@ -45,5 +45,18 @@ describe('CorruptionField', () => {
     expect(hit3?.scrubbed).toBe(true);
     expect(field.getLeftBorderX()).toBe(-38.5);
     expect(field.findNearestActiveMound(-36.5, 3)).toBeNull();
+    expect(field.hitMound('mound-left-inner')).toBeNull();
+    expect(field.hitMound('missing-mound')).toBeNull();
+  });
+
+  it('validates flanking constructor bounds, handles empty mound lists, and clamps negative deltas', () => {
+    expect(() => new CorruptionField(0, 34)).toThrow(RangeError);
+    expect(() => new CorruptionField(-34, 0)).toThrow(RangeError);
+
+    const emptyMounds = new CorruptionField(-34, 34, []);
+    expect(emptyMounds.pushBorder('left', -10)).toBe(-34);
+    expect(emptyMounds.encroachBorder('right', -10)).toBe(34);
+    expect(emptyMounds.getPurityRatio()).toBeGreaterThan(0);
+    expect(emptyMounds.getCorruptionIntensity(34)).toBeCloseTo(0.5, 5);
   });
 });

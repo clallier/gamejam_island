@@ -11,12 +11,25 @@ export const INTERACTABLE_KIND = {
   DOLLHOUSE: 1,
   MOUND: 2,
   RESOURCE: 3,
+  DEFENSE_SLOT: 4,
 } as const;
 
 export const INTERACTABLE_PRIORITY = {
   DOLLHOUSE: 3,
   MOUND: 2,
+  DEFENSE_SLOT: 2,
   RESOURCE: 1,
+} as const;
+
+export const ENEMY_KIND = {
+  GLOOM_SPRITE: 0,
+  GLOOM_BRUTE: 1,
+} as const;
+
+export const DEFENSE_KIND = {
+  EMPTY: 0,
+  TURRET: 1,
+  BARRICADE: 2,
 } as const;
 
 export const LOOT_STATE = {

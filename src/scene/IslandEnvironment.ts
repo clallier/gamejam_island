@@ -61,6 +61,7 @@ export class IslandEnvironment {
   private readonly npcStandees: NpcStandee[] = [];
   private readonly npcByRole = new Map<NpcRoleId, NpcStandee>();
   private readonly dollhouseModels = new Map<NpcRoleId, AssembledModel>();
+  private readonly defenseVisuals = new Map<number, AssembledModel>();
   private readonly lilyPads: Mesh[] = [];
   private readonly roadCrates: Mesh[] = [];
   private readonly nodeEntries = new Map<string, NodeVisualEntry>();
@@ -253,6 +254,40 @@ export class IslandEnvironment {
    */
   public celebrateNpc(roleId: NpcRoleId): void {
     this.npcByRole.get(roleId)?.triggerCelebrate();
+  }
+
+  /**
+   * Builds, upgrades, or removes a modular turret visual mounted on defense plinth `slotIndex`.
+   *
+   * @param slotIndex Zero-based defense plinth index.
+   * @param x Plinth X coordinate.
+   * @param level Structure level (`0` removes the visual, `1+` renders Lv 1 or scaled Lv 2 turret).
+   * @throws Error Never thrown.
+   * @example
+   * env.syncDefenseVisual(0, -26, 1);
+   */
+  public syncDefenseVisual(slotIndex: number, x: number, level: number): void {
+    this.defenseVisuals.get(slotIndex)?.root.dispose(false, false);
+    this.defenseVisuals.delete(slotIndex);
+    if (level <= 0) return;
+    const model = this.assembly.assemble(this.blueprints.getPropBlueprint('defense_turret'), `defense-slot-${slotIndex}`);
+    model.root.position.set(x, 0.24, 1.55);
+    model.root.scaling.setAll(level >= 2 ? 1.2 : 1);
+    model.root.rotation.y = x < 0 ? Math.PI : 0;
+    this.lighting.addShadowCasters(model.getMeshes());
+    this.defenseVisuals.set(slotIndex, model);
+  }
+
+  /**
+   * Updates Defender (`bram`) road patrol X coordinate during night combat.
+   *
+   * @param x Active road X coordinate, or `null` to return beside his watchtower.
+   * @throws Error Never thrown.
+   * @example
+   * env.setDefenderPatrolX(-18);
+   */
+  public setDefenderPatrolX(x: number | null): void {
+    this.npcByRole.get('defender')?.setPatrolX(x);
   }
 
   private _buildTerrainAndWater(): void {

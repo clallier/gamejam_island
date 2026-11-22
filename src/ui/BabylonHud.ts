@@ -73,8 +73,8 @@ export class BabylonHud {
    * hud.resize(canvas.clientWidth, canvas.clientHeight);
    */
   public resize(width: number, height: number): void {
-    const safeWidth = Math.max(320, Math.round(width));
-    const safeHeight = Math.max(320, Math.round(height));
+    const safeWidth = Math.max(320, Math.round(Number.isFinite(width) ? width : 320));
+    const safeHeight = Math.max(320, Math.round(Number.isFinite(height) ? height : 320));
     this.adt.idealWidth = safeWidth;
     const metrics = this.layout.compute(safeWidth, safeHeight);
     this.topBar.applyLayout(metrics);
@@ -97,8 +97,34 @@ export class BabylonHud {
     zone: IslandZone,
     purityRatio: number,
     inventory: Record<ResourceKey, number>,
+    heartHp = 100,
+    activeEnemies = 0,
   ): void {
-    this.topBar.updateStatus(time, zone, purityRatio, inventory);
+    this.topBar.updateStatus(time, zone, purityRatio, inventory, heartHp, activeEnemies);
+  }
+
+  /**
+   * Registers the callback invoked when clicking `Restart Island` after Town Heart defeat.
+   *
+   * @param callback Restart handler.
+   * @throws Error Never thrown.
+   * @example
+   * hud.setOnRestart(() => app.restart());
+   */
+  public setOnRestart(callback: () => void): void {
+    this.topBar.setOnRestart(callback);
+  }
+
+  /**
+   * Shows or hides the Town Heart fallen restart banner.
+   *
+   * @param visible `true` when game over.
+   * @throws Error Never thrown.
+   * @example
+   * hud.setGameOver(combat.isOver());
+   */
+  public setGameOver(visible: boolean): void {
+    this.topBar.setGameOver(visible);
   }
 
   /**

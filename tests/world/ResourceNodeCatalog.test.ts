@@ -25,6 +25,9 @@ describe('ResourceNodeCatalog', () => {
     expect(catalog.findNearestHarvestable(25, 3)).toBeNull();
 
     expect(catalog.regrowAll()).toBe(2);
+    expect(catalog.regrowAll()).toBe(0);
     expect(catalog.findNearestHarvestable(25, 3)?.id).toBe('tree-1');
+    expect(catalog.findNearestHarvestable(0, 3)).toBeNull();
+    expect(catalog.hitNode('missing-node')).toBeNull();
   });
 });

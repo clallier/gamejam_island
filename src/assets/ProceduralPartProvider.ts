@@ -103,6 +103,10 @@ export class ProceduralPartProvider implements IMeshPartProvider {
       portal_monolith: (r, p, k) => this._buildPortal(r, p, k),
       wildflower_patch: (r, p, k) => this._buildWildflowerPatch(r, p, k),
       purifier_flower: (r, p, k) => this._buildPurifierFlower(r, p, k),
+      defense_turret: (r, p, k) => this._buildDefenseTurret(r, p, k),
+      defense_barricade: (r, p, k) => this._buildDefenseBarricade(r, p, k),
+      enemy_gloom_sprite: (r, p, k) => this._buildEnemySprite(r, p, k),
+      enemy_gloom_brute: (r, p, k) => this._buildEnemyBrute(r, p, k),
     };
   }
 
@@ -345,6 +349,30 @@ export class ProceduralPartProvider implements IMeshPartProvider {
     leafR.rotation.z = -0.35;
     this._sphere(r, `${p}-lantern-core`, 0.56, [0, 1.15, 0], k);
     this._cyl(r, `${p}-halo`, 0.1, 0.84, 0.35, [0, 1.0, 0], 'clayCream');
+  }
+
+  private _buildDefenseTurret(r: TransformNode, p: string, k: PaletteKey): void {
+    this._cyl(r, `${p}-base`, 0.72, 0.88, 1.08, [0, 0.36, 0], 'stoneWarm');
+    this._box(r, `${p}-mount`, 0.72, 0.44, 0.68, [0, 0.92, 0], k);
+    this._cyl(r, `${p}-barrel`, 0.88, 0.18, 0.22, [0.42, 0.98, 0], 'amberGlow').rotation.z = Math.PI / 2;
+  }
+
+  private _buildDefenseBarricade(r: TransformNode, p: string, k: PaletteKey): void {
+    this._box(r, `${p}-wall`, 0.52, 0.95, 1.4, [0, 0.48, 0], k);
+    this._box(r, `${p}-beam`, 0.62, 0.2, 1.5, [0, 0.92, 0], 'woodWarm');
+  }
+
+  private _buildEnemySprite(r: TransformNode, p: string, k: PaletteKey): void {
+    this._sphere(r, `${p}-body`, 0.82, [0, 0.56, 0], 'corruptionDark');
+    this._sphere(r, `${p}-core`, 0.42, [0, 0.62, -0.22], k);
+    this._cyl(r, `${p}-horn`, 0.45, 0.04, 0.22, [0, 1.08, 0], k);
+  }
+
+  private _buildEnemyBrute(r: TransformNode, p: string, k: PaletteKey): void {
+    this._box(r, `${p}-torso`, 1.05, 1.15, 0.92, [0, 0.7, 0], k);
+    this._sphere(r, `${p}-eye`, 0.52, [0, 1.15, -0.35], 'corruptionNeon');
+    this._cyl(r, `${p}-spike-l`, 0.6, 0.05, 0.24, [-0.42, 1.38, 0], 'corruptionNeon');
+    this._cyl(r, `${p}-spike-r`, 0.6, 0.05, 0.24, [0.42, 1.38, 0], 'corruptionNeon');
   }
 
   private _box(

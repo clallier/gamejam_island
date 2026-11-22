@@ -101,6 +101,18 @@ export class PlayerController {
     return this.collider.position.x;
   }
 
+  /**
+   * Returns the player's current horizontal facing direction.
+   *
+   * @returns `1` when facing right, `-1` when facing left.
+   * @throws Error Never thrown.
+   * @example
+   * const facing = player.getFacing();
+   */
+  public getFacing(): 1 | -1 {
+    return this.facing === 1 ? 1 : -1;
+  }
+
   private _createColliderMesh(): Mesh {
     const capsule = MeshBuilder.CreateCapsule(
       'player-physics-capsule',

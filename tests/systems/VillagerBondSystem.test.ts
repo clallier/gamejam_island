@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { IslandEcsWorld } from '../../src/ecs/IslandEcsWorld.ts';
+import { BOND_LEVEL_THRESHOLDS } from '../../src/systems/constants.ts';
 import { VillagerBondSystem } from '../../src/systems/VillagerBondSystem.ts';
-import { DOLLHOUSE_PLOTS } from '../../src/world/constants.ts';
+import { DOLLHOUSE_PLOTS, type NpcRoleId } from '../../src/world/constants.ts';
 import { InventoryStore } from '../../src/world/InventoryStore.ts';
 
 function setupBonds(): { ecs: IslandEcsWorld; bonds: VillagerBondSystem; inventory: InventoryStore } {
@@ -85,5 +86,77 @@ describe('VillagerBondSystem', () => {
     expect(snap.isFurnishMaxed).toBe(true);
     expect(snap.canFurnish).toBe(false);
     expect(snap.furnishLabel).toBe('Decor Maxed');
+  });
+
+  it('exercises all 4 roles, Lv1->2->3 thresholds, all 7 perk getters, and furniture tiers', () => {
+    const { bonds, inventory } = setupBonds();
+    inventory.add('wood', 50);
+    inventory.add('stone', 50);
+    inventory.add('petals', 50);
+    inventory.add('shards', 50);
+
+    // Baseline Lv1 perks across all 7 getters
+    expect(bonds.getHarvestBonus()).toBe(0);
+    expect(bonds.getPlantPushMultiplier()).toBe(1);
+    expect(bonds.getMoundHitDamage()).toBe(1);
+    expect(bonds.getMoundShardBonus()).toBe(0);
+    expect(bonds.getDawnPetalBonus()).toBe(0);
+    expect(bonds.getTurretFireRateMultiplier()).toBe(1);
+    expect(bonds.getDefenderBonusDamage()).toBe(0);
+
+    // Exact Lv 2 (30 XP) and Lv 3 (80 XP) thresholds via hangOuts & furnish/gift
+    const roles: NpcRoleId[] = ['engineer', 'medic', 'defender', 'merchant'];
+    for (const role of roles) {
+      expect(bonds.getSnapshot(role, inventory).xpText).toBe(`0/${BOND_LEVEL_THRESHOLDS[1]} XP`);
+      const t1 = bonds.furnishRoom(role, inventory);
+      const t2 = bonds.furnishRoom(role, inventory);
+      expect(t1?.tier).toBe(1);
+      expect(t2?.tier).toBe(2);
+      expect(bonds.furnishRoom(role, inventory)).toBeNull();
+      // 20 + 20 = 40 XP -> Lv 2
+      const lv2Snap = bonds.getSnapshot(role, inventory);
+      expect(lv2Snap.level).toBe(2);
+      expect(lv2Snap.xpText).toBe(`40/${BOND_LEVEL_THRESHOLDS[2]} XP`);
+
+      // Reach 80+ XP for Lv 3
+      bonds.giveGift(role, inventory);
+      bonds.hangOut(role, inventory);
+      const lv3Snap = bonds.getSnapshot(role, inventory);
+      expect(lv3Snap.level).toBe(3);
+      expect(lv3Snap.xpText).toBe('MAX');
+      expect(lv3Snap.activePerkLabel).toContain('★');
+    }
+
+    // All 7 perks active at Lv 3
+    expect(bonds.getHarvestBonus()).toBe(1);
+    expect(bonds.getPlantPushMultiplier()).toBe(1.8);
+    expect(bonds.getMoundHitDamage()).toBe(2);
+    expect(bonds.getMoundShardBonus()).toBe(1);
+    expect(bonds.getDawnPetalBonus()).toBe(2);
+    expect(bonds.getTurretFireRateMultiplier()).toBe(1.25);
+    expect(bonds.getDefenderBonusDamage()).toBe(6);
+
+    // Further hangOut at Lv 3 does not report leveledUp
+    expect(bonds.hangOut('engineer', inventory)?.leveledUp).toBe(false);
+  });
+
+  it('handles unregistered villagers and unaffordable gifts or furnishings gracefully', () => {
+    const ecs = new IslandEcsWorld();
+    const bonds = new VillagerBondSystem(ecs);
+    const emptyInv = new InventoryStore({ wood: 0, stone: 0, petals: 0, shards: 0 });
+
+    expect(bonds.hangOut('engineer', emptyInv)).toBeNull();
+    expect(bonds.giveGift('medic', emptyInv)).toBeNull();
+    expect(bonds.furnishRoom('defender', emptyInv)).toBeNull();
+    const fallbackSnap = bonds.getSnapshot('merchant', emptyInv);
+    expect(fallbackSnap.level).toBe(1);
+    expect(fallbackSnap.canGift).toBe(false);
+    expect(fallbackSnap.canFurnish).toBe(false);
+
+    // Registered villager with empty inventory cannot gift or furnish
+    ecs.registerDollhouse(0, 'house-engineer', -13, 3.2);
+    ecs.registerVillager('engineer', 'house-engineer', -13);
+    expect(bonds.giveGift('engineer', emptyInv)).toBeNull();
+    expect(bonds.furnishRoom('engineer', emptyInv)).toBeNull();
   });
 });

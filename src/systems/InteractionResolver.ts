@@ -4,10 +4,12 @@ import type { DollhousePlot, ResourceNodeKind } from '../world/constants.ts';
 import type { CorruptionField } from '../world/CorruptionField.ts';
 import type { IslandStrip } from '../world/IslandStrip.ts';
 import type { ResourceNodeCatalog } from '../world/ResourceNodeCatalog.ts';
+import type { DefenseStructureSystem } from './DefenseStructureSystem.ts';
 
 export type InteractionTarget =
   | { readonly type: 'dollhouse'; readonly plot: DollhousePlot; readonly icon: '🏠'; readonly label: string }
   | { readonly type: 'mound'; readonly id: string; readonly x: number; readonly icon: '✨'; readonly label: 'Scrub' }
+  | { readonly type: 'defense'; readonly slotIndex: number; readonly id: string; readonly x: number; readonly icon: string; readonly label: string }
   | { readonly type: 'resource'; readonly id: string; readonly x: number; readonly kind: ResourceNodeKind; readonly icon: string; readonly label: string };
 
 /**
@@ -40,13 +42,14 @@ export class InteractionResolver {
     strip: IslandStrip,
     resources: ResourceNodeCatalog,
     corruption: CorruptionField,
+    defenses?: DefenseStructureSystem,
   ): InteractionTarget | null {
     const bestEid = this._findBestEntity(playerX, ecs);
     if (bestEid === -1) return null;
     const { Interactable } = ecs.getComponents();
     const kind = Interactable.kind[bestEid] ?? 0;
     const payloadIndex = Interactable.payloadIndex[bestEid] ?? 0;
-    return this._mapTarget(kind, payloadIndex, strip, resources, corruption);
+    return this._mapTarget(kind, payloadIndex, strip, resources, corruption, defenses);
   }
 
   private _findBestEntity(playerX: number, ecs: IslandEcsWorld): number {
@@ -77,15 +80,23 @@ export class InteractionResolver {
     strip: IslandStrip,
     resources: ResourceNodeCatalog,
     corruption: CorruptionField,
+    defenses?: DefenseStructureSystem,
   ): InteractionTarget | null {
     if (kind === INTERACTABLE_KIND.DOLLHOUSE) {
       const plot = strip.getDollhousePlots()[index];
       return plot ? { type: 'dollhouse', plot, icon: '🏠', label: plot.npcName } : null;
     }
+    if (kind === INTERACTABLE_KIND.DEFENSE_SLOT) {
+      const slotX = strip.getDefenseSlots()[index];
+      if (slotX === undefined) return null;
+      const prompt = defenses?.getSlotPrompt(index) ?? { icon: '🗼', label: 'Turret' };
+      return { type: 'defense', slotIndex: index, id: `slot-${index}`, x: slotX, ...prompt };
+    }
     if (kind === INTERACTABLE_KIND.MOUND) {
       const mound = corruption.getMounds()[index];
       return mound && !mound.scrubbed ? { type: 'mound', id: mound.id, x: mound.x, icon: '✨', label: 'Scrub' } : null;
     }
+    if (kind !== INTERACTABLE_KIND.RESOURCE) return null;
     const node = resources.getAllNodes()[index];
     if (!node || node.depleted) return null;
     return { type: 'resource', id: node.id, x: node.x, kind: node.kind, ...InteractionResolver.RESOURCE_PROMPTS[node.kind] };

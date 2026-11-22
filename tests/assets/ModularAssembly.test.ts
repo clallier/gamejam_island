@@ -1,7 +1,10 @@
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Scene } from '@babylonjs/core/scene.js';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BlueprintRegistry, type WorldPropKind } from '../../src/assets/BlueprintRegistry.ts';
+import { ColorPalette } from '../../src/assets/ColorPalette.ts';
+import type { PaletteKey, PartId } from '../../src/assets/constants.ts';
 import { GltfPartProvider } from '../../src/assets/GltfPartProvider.ts';
 import { ModularAssemblyFactory } from '../../src/assets/ModularAssemblyFactory.ts';
 import { ProceduralPartProvider } from '../../src/assets/ProceduralPartProvider.ts';
@@ -26,7 +29,7 @@ describe('ModularAssemblyFactory + Providers', () => {
       scene.dispose();
       engine.dispose();
     });
-    return { factory, registry: new BlueprintRegistry() };
+    return { scene, materials, procedural, factory, registry: new BlueprintRegistry() };
   }
 
   it('assembles hero, all four NPCs, all dollhouses, and all world props', () => {
@@ -69,8 +72,59 @@ describe('ModularAssemblyFactory + Providers', () => {
   it('hot-swaps modular socket parts cleanly and rejects unknown sockets', () => {
     const { factory, registry } = createAssemblyContext();
     const hero = factory.assemble(registry.getHeroBlueprint(), 'hero');
-    const swapped = hero.swapPart('hat', 'hat_helm', 'defender');
+    const swapped = hero.swapPart('hat', 'hat_helm', 'defender', {
+      position: [0, 0.1, 0],
+      rotation: [0, 0.2, 0],
+      scale: [1.1, 1.1, 1.1],
+    });
     expect(swapped.getChildMeshes().length).toBeGreaterThan(0);
+    expect(swapped.rotation.y).toBeCloseTo(0.2, 5);
+    expect(swapped.scaling.x).toBeCloseTo(1.1, 5);
     expect(() => hero.swapPart('roof', 'dollhouse_roof', 'hero')).toThrow();
+  });
+
+  it('builds every furniture, defense, enemy, and prop part and covers ColorPalette, StylizedMaterialFactory, and GltfPartProvider', async () => {
+    const { scene, materials, procedural, factory, registry } = createAssemblyContext();
+    const palette = new ColorPalette();
+    const keys: PaletteKey[] = [
+      'hero', 'engineer', 'medic', 'defender', 'merchant', 'woodWarm', 'woodDark',
+      'clayCream', 'stoneWarm', 'grassSage', 'foliagePine', 'foliageLeaf', 'waterTeal',
+      'amberGlow', 'heartAmber', 'corruptionDark', 'corruptionNeon', 'skinPeach', 'leather',
+    ];
+    for (const key of keys) {
+      expect(palette.getSwatch(key).diffuse).toBeDefined();
+      materials.getMaterial(key);
+    }
+    expect(materials.getAllMaterials()).toHaveLength(keys.length);
+
+    const extraParts: PartId[] = [
+      'furniture_tool_chest', 'furniture_hearth_stove', 'furniture_herb_shelf', 'furniture_tea_table',
+      'furniture_training_dummy', 'furniture_banner_stand', 'furniture_curio_shelf', 'furniture_plush_rug',
+      'prop_lantern', 'defense_turret', 'defense_barricade', 'enemy_gloom_sprite', 'enemy_gloom_brute',
+    ];
+    for (const partId of extraParts) {
+      const node = procedural.createPart(partId, `part-${partId}`, 'amberGlow');
+      expect(node.getChildMeshes().length).toBeGreaterThan(0);
+    }
+
+    const extraProps: WorldPropKind[] = ['defense_turret', 'defense_barricade', 'enemy_gloom_sprite', 'enemy_gloom_brute'];
+    for (const propKind of extraProps) {
+      expect(factory.assemble(registry.getPropBlueprint(propKind), `extra-${propKind}`).getMeshes().length).toBeGreaterThan(0);
+    }
+
+    // GltfPartProvider falls back cleanly on failed manifest URL and instantiates cached AssetContainers when loaded
+    const gltf = new GltfPartProvider(scene, procedural, { hat_explorer: '/nonexistent/hat.glb' });
+    await gltf.preloadAll();
+    const fallbackNode = gltf.createPart('hat_explorer', 'fallback-hat', 'woodWarm');
+    expect(fallbackNode.getChildMeshes().length).toBeGreaterThan(0);
+
+    const fakeRoot = new TransformNode('glb-node', scene);
+    const fakeContainer = {
+      instantiateModelsToScene: vi.fn(() => ({ rootNodes: [fakeRoot] })),
+    };
+    (gltf as unknown as { containers: Map<PartId, unknown> }).containers.set('hat_explorer', fakeContainer);
+    const glbPart = gltf.createPart('hat_explorer', 'loaded-hat', 'woodWarm');
+    expect(fakeContainer.instantiateModelsToScene).toHaveBeenCalledTimes(1);
+    expect(glbPart.getChildren()).toContain(fakeRoot);
   });
 });

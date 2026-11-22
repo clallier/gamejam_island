@@ -166,7 +166,9 @@ export class LootDropSystem {
    */
   public dispose(): void {
     while (this.activeOrder.length > 0) {
-      this.ecs.despawnEntity(this.activeOrder[this.activeOrder.length - 1]!);
+      const eid = this.activeOrder.pop()!;
+      this._releaseMeshAndBody(eid);
+      if (this.ecs.isEntityAlive(eid)) this.ecs.despawnEntity(eid);
     }
     for (const pool of Object.values(this.meshPools)) {
       while (pool.length > 0) pool.pop()?.dispose();

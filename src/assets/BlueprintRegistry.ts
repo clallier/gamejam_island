@@ -14,7 +14,11 @@ export type WorldPropKind =
   | 'mound'
   | 'portal'
   | 'wildflower'
-  | 'purifier_flower';
+  | 'purifier_flower'
+  | 'defense_turret'
+  | 'defense_barricade'
+  | 'enemy_gloom_sprite'
+  | 'enemy_gloom_brute';
 
 interface NpcSpec {
   readonly hat: PartId;
@@ -157,6 +161,10 @@ export class BlueprintRegistry {
       portal: { socket: 'root', partId: 'portal_monolith', paletteKey: 'corruptionNeon' },
       wildflower: { socket: 'root', partId: 'wildflower_patch', paletteKey: 'amberGlow' },
       purifier_flower: { socket: 'root', partId: 'purifier_flower', paletteKey: 'amberGlow' },
+      defense_turret: { socket: 'root', partId: 'defense_turret', paletteKey: 'woodWarm' },
+      defense_barricade: { socket: 'root', partId: 'defense_barricade', paletteKey: 'stoneWarm' },
+      enemy_gloom_sprite: { socket: 'root', partId: 'enemy_gloom_sprite', paletteKey: 'corruptionNeon' },
+      enemy_gloom_brute: { socket: 'root', partId: 'enemy_gloom_brute', paletteKey: 'corruptionDark' },
     };
     return { id: `prop-${kind}`, sockets: ['root'], attachments: [map[kind]] };
   }

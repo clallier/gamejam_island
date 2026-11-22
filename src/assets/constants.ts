@@ -54,7 +54,11 @@ export type PartId =
   | 'mound_corruption'
   | 'portal_monolith'
   | 'wildflower_patch'
-  | 'purifier_flower';
+  | 'purifier_flower'
+  | 'defense_turret'
+  | 'defense_barricade'
+  | 'enemy_gloom_sprite'
+  | 'enemy_gloom_brute';
 
 export type PaletteKey =
   | 'hero'

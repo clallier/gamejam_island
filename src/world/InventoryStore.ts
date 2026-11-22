@@ -51,7 +51,7 @@ export class InventoryStore {
    * store.add('wood', 2);
    */
   public add(key: ResourceKey, amount: number): number {
-    if (amount <= 0) return this.counts[key];
+    if (!Number.isFinite(amount) || amount <= 0) return this.counts[key];
     this.counts[key] += Math.floor(amount);
     return this.counts[key];
   }
@@ -65,8 +65,9 @@ export class InventoryStore {
    * const ok = store.canAfford({ petals: 2 });
    */
   public canAfford(cost: Partial<Record<ResourceKey, number>>): boolean {
-    for (const [key, amount] of Object.entries(cost) as Array<[ResourceKey, number]>) {
-      if (this.counts[key] < amount) return false;
+    for (const [key, amount] of Object.entries(cost) as Array<[ResourceKey, number | undefined]>) {
+      if (amount === undefined || amount <= 0) continue;
+      if (!Number.isFinite(amount) || this.counts[key] < amount) return false;
     }
     return true;
   }
@@ -81,7 +82,8 @@ export class InventoryStore {
    */
   public spend(cost: Partial<Record<ResourceKey, number>>): boolean {
     if (!this.canAfford(cost)) return false;
-    for (const [key, amount] of Object.entries(cost) as Array<[ResourceKey, number]>) {
+    for (const [key, amount] of Object.entries(cost) as Array<[ResourceKey, number | undefined]>) {
+      if (amount === undefined || amount <= 0) continue;
       this.counts[key] -= amount;
     }
     return true;

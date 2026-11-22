@@ -32,4 +32,21 @@ describe('TimeCycle', () => {
     expect(clock.jumpToPhase('day').nightFactor).toBe(0);
     expect(clock.jumpToPhase('dawn').phase).toBe('dawn');
   });
+
+  it('ignores negative or NaN deltaSeconds and clamps negative timeScale', () => {
+    const clock = new TimeCycle(0.22, 100);
+    clock.setTimeScale(-3);
+    expect(clock.advance(50).normalizedTime).toBeCloseTo(0.22, 6);
+    clock.setTimeScale(1);
+    expect(clock.advance(-10).normalizedTime).toBeCloseTo(0.22, 6);
+    expect(clock.advance(Number.NaN).normalizedTime).toBeCloseTo(0.22, 6);
+  });
+
+  it('validates positive cycleDurationSeconds and wraps negative initial normalizedTime', () => {
+    expect(() => new TimeCycle(0.2, 0)).toThrow(RangeError);
+    expect(() => new TimeCycle(0.2, -50)).toThrow(RangeError);
+    const wrapped = new TimeCycle(-0.25, 100);
+    expect(wrapped.getSnapshot().normalizedTime).toBeCloseTo(0.75, 6);
+    expect(wrapped.getSnapshot().phase).toBe('night');
+  });
 });

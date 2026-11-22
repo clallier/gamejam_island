@@ -59,7 +59,7 @@ export class AssembledModel {
     if (!socketNode) {
       throw new Error(`Unknown socket "${socket}" on model "${this.root.name}"`);
     }
-    this.attached.get(socket)?.dispose(false, true);
+    this.attached.get(socket)?.dispose(false, false);
     const part = this.provider.createPart(partId, `${this.root.name}-${socket}`, paletteKey);
     part.parent = socketNode;
     this._applyOffset(part, attachment);

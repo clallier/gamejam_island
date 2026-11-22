@@ -24,9 +24,15 @@ describe('CameraFraming', () => {
     expect(zoomed.fov).toBeLessThan(roam.fov);
   });
 
-  it('rejects non-positive aspect ratios', () => {
+  it('rejects non-positive or non-finite aspect ratios and handles portrait focus pullback', () => {
     const framing = new CameraFraming();
     expect(() => framing.compute(0, 0)).toThrow(RangeError);
     expect(() => framing.compute(-1, 0)).toThrow(RangeError);
+    expect(() => framing.compute(Number.NaN, 0)).toThrow(RangeError);
+    expect(() => framing.compute(Number.POSITIVE_INFINITY, 0)).toThrow(RangeError);
+
+    const portraitFocus = framing.compute(0.45, 0, -13);
+    const landscapeFocus = framing.compute(1.6, 0, -13);
+    expect(portraitFocus.position.z).toBeLessThan(landscapeFocus.position.z);
   });
 });

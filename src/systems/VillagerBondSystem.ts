@@ -239,6 +239,30 @@ export class VillagerBondSystem {
     return this._getLevel('medic') >= 3 ? 2 : 0;
   }
 
+  /**
+   * Returns turret fire-rate multiplier unlocked by Pip (`engineer` Lv 3).
+   *
+   * @returns Fire-rate multiplier (`1.25` at Engineer Lv 3, else `1`).
+   * @throws Error Never thrown.
+   * @example
+   * const rate = bonds.getTurretFireRateMultiplier();
+   */
+  public getTurretFireRateMultiplier(): number {
+    return this._getLevel('engineer') >= 3 ? 1.25 : 1;
+  }
+
+  /**
+   * Returns bonus night patrol melee damage unlocked by Bram (`defender` Lv 3).
+   *
+   * @returns Extra attack damage (`6` at Defender Lv 3, else `0`).
+   * @throws Error Never thrown.
+   * @example
+   * const bonus = bonds.getDefenderBonusDamage();
+   */
+  public getDefenderBonusDamage(): number {
+    return this._getLevel('defender') >= 3 ? 6 : 0;
+  }
+
   private _getLevel(roleId: NpcRoleId): number {
     const eid = this.ecs.getEntityId(`npc-${roleId}`);
     if (eid === undefined) return 1;

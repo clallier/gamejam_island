@@ -1,6 +1,7 @@
 import { pipe } from 'bitecs';
 import type { LootDropSystem } from '../entities/LootDropSystem.ts';
 import type { IslandEnvironment } from '../scene/IslandEnvironment.ts';
+import type { DefenseStructureSystem } from '../systems/DefenseStructureSystem.ts';
 import type { InteractionResolver, InteractionTarget } from '../systems/InteractionResolver.ts';
 import type { CorruptionField } from '../world/CorruptionField.ts';
 import type { InventoryStore } from '../world/InventoryStore.ts';
@@ -32,6 +33,7 @@ export interface SimulationPipelineDeps {
   resolver: InteractionResolver;
   lootDrops: LootDropSystem;
   environment: IslandEnvironment;
+  defenses?: DefenseStructureSystem;
 }
 
 /**
@@ -94,6 +96,7 @@ export class SimulationPipeline {
       this.deps.strip,
       this.deps.resources,
       this.deps.corruption,
+      this.deps.defenses,
     );
     return ctx;
   }

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { IslandEcsWorld } from '../../src/ecs/IslandEcsWorld.ts';
 import { INTERACT_RANGE } from '../../src/systems/constants.ts';
+import { DefenseStructureSystem } from '../../src/systems/DefenseStructureSystem.ts';
 import { InteractionResolver } from '../../src/systems/InteractionResolver.ts';
+import { DEFENSE_SLOT_XS } from '../../src/world/constants.ts';
 import { CorruptionField } from '../../src/world/CorruptionField.ts';
+import { InventoryStore } from '../../src/world/InventoryStore.ts';
 import { IslandStrip } from '../../src/world/IslandStrip.ts';
 import { ResourceNodeCatalog } from '../../src/world/ResourceNodeCatalog.ts';
 
@@ -47,5 +50,59 @@ describe('InteractionResolver (bitECS SoA)', () => {
     const fallbackBoulder = resolver.resolve(37, ecs, strip, nodes, corruption);
     expect(fallbackBoulder?.type).toBe('resource');
     expect(fallbackBoulder?.label).toBe('Mine');
+  });
+
+  it('enforces priority hierarchy, exact boundary distances, tie-breaking, defense prompts, and stale/unregistered filtering', () => {
+    const ecs = new IslandEcsWorld();
+    const resolver = new InteractionResolver();
+    const strip = new IslandStrip();
+    const nodes = new ResourceNodeCatalog([
+      { id: 'tree-at-slot', kind: 'tree_pine', x: DEFENSE_SLOT_XS[0]!, z: 3.2, scale: 1 },
+      { id: 'boulder-left', kind: 'boulder', x: 29, z: 3.2, scale: 1 },
+      { id: 'flower-right', kind: 'wildflower', x: 30, z: 3.2, scale: 1 },
+    ]);
+    const corruption = new CorruptionField();
+    const defenses = new DefenseStructureSystem(ecs, DEFENSE_SLOT_XS);
+    const inventory = new InventoryStore({ wood: 20, stone: 20, petals: 10, shards: 10 });
+
+    strip.getDollhousePlots().forEach((p, idx) =>
+      ecs.registerDollhouse(idx, `house-${p.roleId}`, p.x, INTERACT_RANGE),
+    );
+    DEFENSE_SLOT_XS.forEach((slotX, idx) =>
+      ecs.registerDefenseSlot(idx, `slot-${idx}`, slotX, INTERACT_RANGE),
+    );
+    // Unregistered slot index out of strip bounds
+    ecs.registerDefenseSlot(99, 'slot-99', 42, INTERACT_RANGE);
+    nodes.getAllNodes().forEach((n, idx) =>
+      ecs.registerResourceNode(idx, n.id, n.x, n.z, INTERACT_RANGE),
+    );
+    corruption.getMounds().forEach((m, idx) =>
+      ecs.registerPollutionMound(idx, m.id, m.x, INTERACT_RANGE),
+    );
+
+    // DEFENSE_SLOT (priority 2) beats RESOURCE (priority 1) at the exact same X
+    const slotTarget = resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses);
+    expect(slotTarget).toMatchObject({ type: 'defense', slotIndex: 0, label: 'Turret' });
+
+    // Building and upgrading updates defense prompt through InteractionResolver
+    defenses.interactSlot(0, inventory);
+    expect(resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses)?.label).toBe('Lv2');
+    ecs.getComponents().Defense.hp[ecs.getEntityId('slot-0')!] = 10;
+    expect(resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses)?.label).toBe('Repair');
+
+    // Equal-priority tie-break selects closer resource
+    const closerResource = resolver.resolve(29.8, ecs, strip, nodes, corruption, defenses);
+    expect(closerResource).toMatchObject({ type: 'resource', id: 'flower-right' });
+
+    // Boundary distance: exact range matches, epsilon beyond range returns null
+    const exactBoundary = resolver.resolve(30 + INTERACT_RANGE, ecs, strip, nodes, corruption, defenses);
+    expect(exactBoundary).toMatchObject({ type: 'resource', id: 'flower-right' });
+    expect(resolver.resolve(30 + INTERACT_RANGE + 0.001, ecs, strip, nodes, corruption, defenses)).toBeNull();
+    expect(resolver.resolve(Number.NaN, ecs, strip, nodes, corruption, defenses)).toBeNull();
+
+    // Unregistered slot returns null, and depleted node without ECS deactivation still filters to null
+    expect(resolver.resolve(42, ecs, strip, nodes, corruption, defenses)).toBeNull();
+    nodes.hitNode('flower-right', 5);
+    expect(resolver.resolve(30 + INTERACT_RANGE, ecs, strip, nodes, corruption, defenses)).toBeNull();
   });
 });

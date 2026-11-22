@@ -4,6 +4,7 @@ import { SimulationPipeline } from '../../src/ecs/SimulationPipeline.ts';
 import type { LootDropSystem } from '../../src/entities/LootDropSystem.ts';
 import type { IslandEnvironment } from '../../src/scene/IslandEnvironment.ts';
 import { InteractionResolver } from '../../src/systems/InteractionResolver.ts';
+import { DefenseStructureSystem } from '../../src/systems/DefenseStructureSystem.ts';
 import { CorruptionField } from '../../src/world/CorruptionField.ts';
 import { InventoryStore } from '../../src/world/InventoryStore.ts';
 import { IslandStrip } from '../../src/world/IslandStrip.ts';
@@ -41,6 +42,7 @@ describe('SimulationPipeline (bitECS pipe)', () => {
       }),
     } as unknown as IslandEnvironment;
 
+    const defenses = new DefenseStructureSystem(ecs);
     const pipeline = new SimulationPipeline({
       ecs,
       strip,
@@ -50,6 +52,7 @@ describe('SimulationPipeline (bitECS pipe)', () => {
       resolver,
       lootDrops,
       environment,
+      defenses,
     });
 
     const firstPlotX = strip.getDollhousePlots()[0]!.x;

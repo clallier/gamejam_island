@@ -3,6 +3,7 @@ import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import type { Button } from '@babylonjs/gui/2D/controls/button.js';
+import { Control } from '@babylonjs/gui/2D/controls/control.js';
 import type { Rectangle } from '@babylonjs/gui/2D/controls/rectangle.js';
 import type { StackPanel } from '@babylonjs/gui/2D/controls/stackPanel.js';
 import type { TextBlock } from '@babylonjs/gui/2D/controls/textBlock.js';
@@ -181,5 +182,119 @@ describe('BabylonHud (@babylonjs/gui)', () => {
     expect(onHangOut).toHaveBeenCalledTimes(1);
     expect(onGift).toHaveBeenCalledTimes(1);
     expect(onFurnish).toHaveBeenCalledTimes(1);
+  });
+
+  it('displays Town Heart HP, night enemy counts, and triggers onRestart from the game-over banner', () => {
+    const { hud } = createHudHarness();
+    const onRestart = vi.fn();
+    hud.setOnRestart(onRestart);
+
+    const nightSnap = new TimeCycle().jumpToPhase('night');
+    hud.updateStatus(nightSnap, 'defense', 0.6, INITIAL_INVENTORY, 45, 4);
+    expect((hud.getControlByName('hud-heart') as TextBlock).text).toBe('❤ 45');
+    expect((hud.getControlByName('hud-phase') as TextBlock).text).toContain('👾 4');
+
+    hud.setGameOver(true);
+    const banner = hud.getControlByName('hud-gameover-banner') as Rectangle;
+    expect(banner.isVisible).toBe(true);
+    (hud.getControlByName('btn-restart-island') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it('adapts compact vs desktop layout, handles NaN resize/metrics, and renders fallback or maxed dollhouse cards', () => {
+    const { hud } = createHudHarness();
+    const tossBtn = hud.getControlByName('btn-toss') as Button;
+    const promptPill = hud.getControlByName('dock-prompt') as Rectangle;
+    const card = hud.getControlByName('dollhouse-card') as Rectangle;
+    const metricsRow = hud.getControlByName('hud-metrics-row') as StackPanel;
+
+    // Compact portrait (320px) hides toss & desktop keyboard prompt and left-aligns metrics row
+    hud.resize(320, 640);
+    expect(tossBtn.isVisible).toBe(false);
+    expect(promptPill.isVisible).toBe(false);
+    expect(card.horizontalAlignment).toBe(Control.HORIZONTAL_ALIGNMENT_CENTER);
+    expect(metricsRow.horizontalAlignment).toBe(Control.HORIZONTAL_ALIGNMENT_LEFT);
+
+    // Desktop (1280px) shows toss & prompt and right-aligns card & metrics row
+    hud.resize(1280, 720);
+    expect(tossBtn.isVisible).toBe(true);
+    expect(promptPill.isVisible).toBe(true);
+    expect(card.horizontalAlignment).toBe(Control.HORIZONTAL_ALIGNMENT_RIGHT);
+    expect(metricsRow.horizontalAlignment).toBe(Control.HORIZONTAL_ALIGNMENT_RIGHT);
+
+    // Non-finite resize & status metrics never throw or render NaN text
+    expect(() => hud.resize(Number.NaN, Number.POSITIVE_INFINITY)).not.toThrow();
+    hud.updateStatus(new TimeCycle().getSnapshot(), 'town', Number.NaN, INITIAL_INVENTORY, Number.NaN, 0);
+    expect((hud.getControlByName('hud-heart') as TextBlock).text).toBe('❤ 0');
+    expect((hud.getControlByName('purity-text') as TextBlock).text).toBe('0%');
+
+    // DollhouseCardView fallback when bond is null and maxed furnish state when bond is Lv 3
+    const plot = DOLLHOUSE_PLOTS[1]!;
+    hud.updateInteractionContext({ type: 'dollhouse', plot, icon: '🏠', label: plot.npcName }, plot, false, null);
+    expect((hud.getControlByName('card-npc-meta') as TextBlock).text).toContain('Bond Lv 1');
+    expect((hud.getControlByName('btn-card-hangout') as Button).isEnabled).toBe(false);
+
+    hud.updateInteractionContext(
+      { type: 'dollhouse', plot, icon: '🏠', label: plot.npcName },
+      plot,
+      false,
+      {
+        roleId: 'medic',
+        level: 3,
+        xp: 90,
+        xpText: 'MAX',
+        furnitureStage: 2,
+        hangoutLabel: 'Sun-Tea',
+        giftLabel: 'Gift 🌸2',
+        canGift: false,
+        furnishLabel: 'Decor Maxed',
+        canFurnish: false,
+        isFurnishMaxed: true,
+        activePerkLabel: '★ Lv3: 1.8× Push & +2 Dawn 🌸',
+      },
+    );
+    expect((hud.getControlByName('btn-card-hangout') as Button).isEnabled).toBe(true);
+    expect((hud.getControlByName('btn-card-gift') as Button).isEnabled).toBe(false);
+    expect((hud.getControlByName('btn-card-furnish') as Button).isEnabled).toBe(false);
+    expect((hud.getControlByName('btn-card-furnish-label') as TextBlock).text).toBe('Decor Maxed');
+
+    // Toast alpha fades smoothly before disappearing
+    hud.showToast('Saved');
+    const toast = hud.getControlByName('hud-toast') as Rectangle;
+    hud.tick(1.55);
+    expect(toast.isVisible).toBe(true);
+    expect(toast.alpha).toBeCloseTo(0.5, 2);
+    hud.tick(1.0);
+    expect(toast.isVisible).toBe(false);
+    // Tick when toast hidden is a safe no-op
+    hud.tick(0.5);
+
+    // Clearing focused plot hides dollhouse card
+    hud.updateInteractionContext(null, null, false, null);
+    expect(card.isVisible).toBe(false);
+  });
+
+  it('releases directional holds on pointer up/out and ignores disabled interact taps', () => {
+    const { hud, input } = createHudHarness();
+    const onClose = vi.fn();
+    hud.bindControls(input, vi.fn(), onClose);
+
+    const rightBtn = hud.getControlByName('btn-right') as Button;
+    const inspectBtn = hud.getControlByName('btn-inspect') as Button;
+
+    // Disabled inspect button does not queue interact tap
+    hud.updateInteractionContext(null, null, false);
+    inspectBtn.onPointerDownObservable.notifyObservers(null as never);
+    expect(input.consumeSnapshot().interactPressed).toBe(false);
+
+    // Right hold activates on down and releases on up and out
+    rightBtn.onPointerDownObservable.notifyObservers(null as never);
+    expect(input.consumeSnapshot().moveX).toBe(1);
+    rightBtn.onPointerUpObservable.notifyObservers(null as never);
+    expect(input.consumeSnapshot().moveX).toBe(0);
+
+    rightBtn.onPointerDownObservable.notifyObservers(null as never);
+    rightBtn.onPointerOutObservable.notifyObservers(null as never);
+    expect(input.consumeSnapshot().moveX).toBe(0);
   });
 });

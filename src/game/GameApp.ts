@@ -11,6 +11,7 @@ import { DayNightRig } from '../engine/DayNightRig.ts';
 import { DioramaCamera } from '../engine/DioramaCamera.ts';
 import { InputController, type InputSnapshot } from '../engine/InputController.ts';
 import { PhysicsWorld } from '../engine/PhysicsWorld.ts';
+import { EnemyVisualSystem } from '../entities/EnemyVisualSystem.ts';
 import { LootDropSystem } from '../entities/LootDropSystem.ts';
 import { PlayerController } from '../entities/PlayerController.ts';
 import { IslandEnvironment } from '../scene/IslandEnvironment.ts';
@@ -19,10 +20,13 @@ import {
   MOUND_BORDER_PUSH,
   MOUND_PETAL_DROP,
   MOUND_SHARD_DROP,
+  TOWN_HEART_DAWN_HEAL,
 } from '../systems/constants.ts';
+import { DefenseStructureSystem } from '../systems/DefenseStructureSystem.ts';
 import { InteractionResolver, type InteractionTarget } from '../systems/InteractionResolver.ts';
 import { type PlantBlockReason, PlantingSystem } from '../systems/PlantingSystem.ts';
 import { VillagerBondSystem } from '../systems/VillagerBondSystem.ts';
+import { WaveCombatSystem } from '../systems/WaveCombatSystem.ts';
 import { BabylonHud } from '../ui/BabylonHud.ts';
 import { HUD_THEME, NEXT_PHASE_MAP } from '../ui/constants.ts';
 import type { DollhousePlot, ResourceKey } from '../world/constants.ts';
@@ -30,7 +34,7 @@ import { CorruptionField } from '../world/CorruptionField.ts';
 import { InventoryStore } from '../world/InventoryStore.ts';
 import { IslandStrip } from '../world/IslandStrip.ts';
 import { ResourceNodeCatalog } from '../world/ResourceNodeCatalog.ts';
-import { TimeCycle } from '../world/TimeCycle.ts';
+import { TimeCycle, type TimeSnapshot } from '../world/TimeCycle.ts';
 
 /**
  * Top-level composition root orchestrating Babylon rendering, Havok physics,
@@ -56,6 +60,8 @@ export class GameApp {
   private readonly resourceNodes = new ResourceNodeCatalog();
   private readonly ecs = new IslandEcsWorld();
   private readonly bonds = new VillagerBondSystem(this.ecs);
+  private readonly defenses = new DefenseStructureSystem(this.ecs, this.strip.getDefenseSlots());
+  private readonly waveCombat = new WaveCombatSystem(this.ecs);
   private readonly resolver = new InteractionResolver();
   private readonly planting = new PlantingSystem();
   private readonly input = new InputController();
@@ -66,6 +72,7 @@ export class GameApp {
   private player!: PlayerController;
   private environment!: IslandEnvironment;
   private lootDrops!: LootDropSystem;
+  private enemyVisuals!: EnemyVisualSystem;
   private pipeline!: SimulationPipeline;
   private focusedDollhouse: DollhousePlot | null = null;
   private elapsedSeconds = 0;
@@ -114,6 +121,7 @@ export class GameApp {
   public dispose(): void {
     window.removeEventListener('resize', this._handleResize);
     this.lootDrops?.dispose();
+    this.enemyVisuals?.dispose();
     this.environment?.dispose();
     this.input.dispose();
     this.hud.dispose();
@@ -132,6 +140,7 @@ export class GameApp {
     this.camera = new DioramaCamera(this.scene);
     this._registerEcsEntities();
     this.lootDrops = new LootDropSystem(this.scene, this.ecs, physics, materials, this.lighting);
+    this.enemyVisuals = new EnemyVisualSystem(this.scene, this.ecs, assembly, blueprints, materials, this.lighting);
     this.environment = new IslandEnvironment(
       this.scene, assembly, blueprints, materials, physics, this.lighting,
       this.ecs, this.strip, this.corruption, this.resourceNodes,
@@ -145,6 +154,7 @@ export class GameApp {
       resolver: this.resolver,
       lootDrops: this.lootDrops,
       environment: this.environment,
+      defenses: this.defenses,
     });
     const hero = assembly.assemble(blueprints.getHeroBlueprint(), 'player-hero');
     this.lighting.addShadowCasters(hero.getMeshes());
@@ -156,6 +166,9 @@ export class GameApp {
       this.ecs.registerDollhouse(idx, `house-${plot.roleId}`, plot.x, INTERACT_RANGE);
       this.ecs.registerVillager(plot.roleId, `house-${plot.roleId}`, plot.x);
     });
+    this.strip.getDefenseSlots().forEach((slotX, idx) =>
+      this.ecs.registerDefenseSlot(idx, `slot-${idx}`, slotX, INTERACT_RANGE),
+    );
     this.resourceNodes.getAllNodes().forEach((node, idx) =>
       this.ecs.registerResourceNode(idx, node.id, node.x, node.z, INTERACT_RANGE),
     );
@@ -171,6 +184,7 @@ export class GameApp {
       onGift: () => this._handleGift(),
       onFurnish: () => this._handleFurnish(),
     });
+    this.hud.setOnRestart(() => this._restartIsland());
     window.addEventListener('resize', this._handleResize);
   }
 
@@ -183,25 +197,37 @@ export class GameApp {
 
   private _tick(): void {
     const dt = Math.min(this.engine.getDeltaTime() / 1000, GameApp.MAX_FRAME_DT);
-    this.elapsedSeconds += dt;
     const frameInput = this.input.consumeSnapshot();
+    if (this.waveCombat.isOver()) {
+      this.hud.tick(dt);
+      this.scene.render();
+      return;
+    }
+    this.elapsedSeconds += dt;
     this.player.update(dt, frameInput);
     const playerX = this.player.getX();
     const frame = this.pipeline.run(dt, this.elapsedSeconds, playerX);
     this._handleActions(frameInput, playerX, frame.target);
     this._notifyCollectedLoot(frame.collectedLoot);
-    this._updateWorldAndHud(dt, playerX, frame.target);
+    this._updateWorldAndHud(dt, frameInput, playerX, frame.target);
     this.scene.render();
   }
 
-  private _updateWorldAndHud(dt: number, playerX: number, target: InteractionTarget | null): void {
+  private _updateWorldAndHud(
+    dt: number,
+    frameInput: InputSnapshot,
+    playerX: number,
+    target: InteractionTarget | null,
+  ): void {
     const timeSnap = this.timeCycle.advance(dt);
     this._checkDayRegrowth(timeSnap.dayNumber);
+    this._stepCombat(dt, frameInput, playerX, timeSnap);
     this.lighting.update(timeSnap, playerX);
     this.camera.update(dt, this._getAspectRatio(), playerX, this.focusedDollhouse?.x ?? null);
     this.hud.tick(dt);
     this.hud.updateStatus(
-      timeSnap, this.strip.classifyZone(playerX), this.corruption.getPurityRatio(), this.inventory.getSnapshot(),
+      timeSnap, this.strip.classifyZone(playerX), this.corruption.getPurityRatio(),
+      this.inventory.getSnapshot(), this.waveCombat.getHeartHp(), this.waveCombat.getActiveEnemyCount(),
     );
     const focusedBond = this.focusedDollhouse
       ? this.bonds.getSnapshot(this.focusedDollhouse.roleId, this.inventory)
@@ -209,6 +235,28 @@ export class GameApp {
     this.hud.updateInteractionContext(
       target, this.focusedDollhouse, this.planting.canPlantAt(playerX, this.inventory), focusedBond,
     );
+  }
+
+  private _stepCombat(
+    dt: number,
+    frameInput: InputSnapshot,
+    playerX: number,
+    timeSnap: TimeSnapshot,
+  ): void {
+    if (frameInput.tossPressed) {
+      const hit = this.waveCombat.applyPlayerShot(playerX, this.player.getFacing());
+      if (hit?.killed) this.lootDrops.spawnBurst('shards', 1, hit.x, 0, this.inventory);
+    }
+    const res = this.waveCombat.step(
+      dt, timeSnap.phase, timeSnap.dayNumber,
+      this.bonds.getTurretFireRateMultiplier(), this.bonds.getDefenderBonusDamage(), this.corruption,
+    );
+    res.shots.forEach((s) => this.enemyVisuals.spawnTracer(s.fromX, s.toX));
+    res.slain.forEach((k) => this.lootDrops.spawnBurst('shards', 1, k.x, 0, this.inventory));
+    if (res.defenseDestroyed) this._syncAllDefenseVisuals('Defense Destroyed!');
+    this.environment.setDefenderPatrolX(res.defenderPatrolX);
+    this.enemyVisuals.update(this.elapsedSeconds, dt);
+    this.hud.setGameOver(res.gameOver);
   }
 
   private _handleActions(
@@ -233,11 +281,38 @@ export class GameApp {
       this.focusedDollhouse = target.plot;
       return;
     }
+    if (target.type === 'defense') {
+      this._interactDefense(target.slotIndex);
+      return;
+    }
     if (target.type === 'resource') {
       this._harvestNode(target.id);
       return;
     }
     this._scrubMound(target.id);
+  }
+
+  private _interactDefense(slotIndex: number): void {
+    const outcome = this.defenses.interactSlot(slotIndex, this.inventory);
+    if (!outcome) {
+      this.hud.showToast('Need Wood/Stone/Shards', HUD_THEME.accentAmber);
+      return;
+    }
+    this.environment.syncDefenseVisual(outcome.slotIndex, outcome.x, outcome.level);
+    const label = outcome.action === 'built'
+      ? 'Turret Built!'
+      : outcome.action === 'upgraded'
+        ? 'Turret Lv 2!'
+        : 'Turret Repaired!';
+    this.hud.showToast(label, HUD_THEME.accentSage);
+  }
+
+  private _syncAllDefenseVisuals(toastMessage?: string): void {
+    this.strip.getDefenseSlots().forEach((slotX, idx) => {
+      const slot = this.defenses.getSlotState(idx);
+      this.environment.syncDefenseVisual(idx, slotX, slot.level);
+    });
+    if (toastMessage) this.hud.showToast(toastMessage, HUD_THEME.accentNeon);
   }
 
   private _harvestNode(id: string): void {
@@ -334,6 +409,7 @@ export class GameApp {
   private _checkDayRegrowth(dayNumber: number): void {
     if (dayNumber <= this.lastDayNumber) return;
     this.lastDayNumber = dayNumber;
+    this.waveCombat.healTownHeart(TOWN_HEART_DAWN_HEAL);
     const count = this.resourceNodes.regrowAll();
     const dawnPetals = this.bonds.getDawnPetalBonus();
     if (dawnPetals > 0) this.inventory.add('petals', dawnPetals);
@@ -345,6 +421,15 @@ export class GameApp {
       const giftNote = dawnPetals > 0 ? ` (+${dawnPetals} 🌸)` : '';
       this.hud.showToast(`Dawn — Frontier Regrew!${giftNote}`, HUD_THEME.accentSage);
     }
+  }
+
+  private _restartIsland(): void {
+    this.waveCombat.reset();
+    this.defenses.resetAll();
+    this._syncAllDefenseVisuals();
+    this.hud.setGameOver(false);
+    this.timeCycle.jumpToPhase('day');
+    this.hud.showToast('Island Restored — Defend Dawn!', HUD_THEME.accentSage);
   }
 
   private _cyclePhasePreview(): void {

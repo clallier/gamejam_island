@@ -1,11 +1,11 @@
 import {
   addComponent,
   addEntity,
-  addPrefab,
   createRelation,
   createWorld,
+  entityExists,
   getRelationTargets,
-  IsA,
+  makeExclusive,
   observe,
   onAdd,
   onRemove,
@@ -18,6 +18,7 @@ import {
 } from 'bitecs';
 import type { NpcRoleId, ResourceKey } from '../world/constants.ts';
 import {
+  DEFENSE_KIND,
   INTERACTABLE_KIND,
   INTERACTABLE_PRIORITY,
   LOOT_STATE,
@@ -54,7 +55,33 @@ export interface IslandEcsComponents {
     readonly furnitureStage: Uint8Array;
     readonly hangoutCount: Uint16Array;
   };
+  readonly Enemy: {
+    readonly kind: Uint8Array;
+    readonly hp: Float32Array;
+    readonly maxHp: Float32Array;
+    readonly speed: Float32Array;
+    readonly side: Int8Array;
+    readonly attackCooldown: Float32Array;
+  };
+  readonly Defense: {
+    readonly slotIndex: Uint8Array;
+    readonly kind: Uint8Array;
+    readonly level: Uint8Array;
+    readonly hp: Float32Array;
+    readonly maxHp: Float32Array;
+    readonly fireCooldown: Float32Array;
+  };
 }
+
+export interface EcsGuardError {
+  readonly operation: string;
+  readonly eid: number;
+  readonly targetEid?: number;
+  readonly stringId?: string;
+  readonly detail: string;
+}
+
+export type EcsErrorLogger = (error: EcsGuardError) => void;
 
 /**
  * Data-oriented Structure-of-Arrays (SoA) entity world backed by `bitecs` v0.4
@@ -63,22 +90,31 @@ export interface IslandEcsComponents {
 export class IslandEcsWorld {
   private readonly components: IslandEcsComponents;
   private readonly world: World<{ components: IslandEcsComponents }>;
-  private readonly npcPrefab: number;
+  private readonly npcTag = {};
+  private readonly enemyTag = {};
   private readonly housedIn = createRelation();
+  private readonly targeting = createRelation(makeExclusive);
   private readonly idToEid = new Map<string, number>();
   private readonly eidToId = new Map<number, string>();
   private readonly finishedWobbles: number[] = [];
+  private readonly errorLogger: EcsErrorLogger;
 
   /**
    * Pre-allocates fixed typed-array component buffers and initializes the bitECS world.
    *
+   * @param errorLogger Optional logger called when a guarded ECS operation sees a missing entity.
+   * @throws Error Never thrown during world initialization.
    * @example
    * const ecs = new IslandEcsWorld();
    */
-  public constructor() {
+  public constructor(errorLogger: EcsErrorLogger = IslandEcsWorld._defaultErrorLogger) {
     this.components = this._createComponents();
     this.world = createWorld({ components: this.components });
-    this.npcPrefab = addPrefab(this.world);
+    this.errorLogger = errorLogger;
+  }
+
+  private static _defaultErrorLogger(error: EcsGuardError): void {
+    console.error('[IslandEcsWorld] Guarded invalid entity operation:', error, new Error(error.detail).stack);
   }
 
   /**
@@ -185,7 +221,7 @@ export class IslandEcsWorld {
     LootDrop.age[eid] = 0;
     LootDrop.state[eid] = LOOT_STATE.FALLING;
     addComponent(this.world, eid, Position);
-    addComponent(this.world, eid, LootDrop);
+    if (this._assertAlive('spawnLootEntity.LootDrop', eid)) addComponent(this.world, eid, LootDrop);
     return eid;
   }
 
@@ -194,17 +230,18 @@ export class IslandEcsWorld {
    * Deletes string-ID mappings after `removeEntity` so `onRemove` observers can read them.
    *
    * @param eid Entity ID to remove.
-   * @throws Error Never thrown for valid numeric entity IDs.
+   * @throws Error Never thrown; logs via `errorLogger` if `eid` is already absent.
    * @example
    * ecs.despawnEntity(eid);
    */
   public despawnEntity(eid: number): void {
-    removeEntity(this.world, eid);
     const strId = this.eidToId.get(eid);
-    if (strId !== undefined) {
-      this.eidToId.delete(eid);
-      this.idToEid.delete(strId);
+    if (!this._assertAlive('despawnEntity', eid, { stringId: strId })) {
+      this._deleteStringMapping(eid, strId);
+      return;
     }
+    removeEntity(this.world, eid);
+    this._deleteStringMapping(eid, strId);
   }
 
   /**
@@ -217,7 +254,7 @@ export class IslandEcsWorld {
    */
   public setInteractableActive(stringId: string, active: boolean): void {
     const eid = this.idToEid.get(stringId);
-    if (eid === undefined) return;
+    if (eid === undefined || !this._assertAlive('setInteractableActive', eid, { stringId })) return;
     this.components.Interactable.active[eid] = active ? 1 : 0;
   }
 
@@ -232,6 +269,7 @@ export class IslandEcsWorld {
   public triggerWobble(stringId: string, duration: number): void {
     const eid = this.idToEid.get(stringId);
     if (eid === undefined) return;
+    if (!this._assertAlive('triggerWobble', eid, { stringId })) return;
     this.components.Wobble.remaining[eid] = Math.max(0, duration);
     addComponent(this.world, eid, this.components.Wobble);
   }
@@ -241,6 +279,7 @@ export class IslandEcsWorld {
    *
    * @param deltaSeconds Frame delta in seconds.
    * @param onTick Callback invoked for each active or newly finished wobbling entity.
+   * @throws Error Never thrown; logs if a finished wobble entity disappeared before `removeComponent`.
    * @example
    * ecs.tickWobbles(dt, (id, rem) => rotateRoot(id, rem));
    */
@@ -258,7 +297,9 @@ export class IslandEcsWorld {
       if (next <= 0) this.finishedWobbles.push(eid);
     }
     for (const eid of this.finishedWobbles) {
-      removeComponent(this.world, eid, Wobble);
+      if (this._assertAlive('tickWobbles.removeComponent', eid, { stringId: this.eidToId.get(eid) })) {
+        removeComponent(this.world, eid, Wobble);
+      }
     }
   }
 
@@ -338,7 +379,20 @@ export class IslandEcsWorld {
   }
 
   /**
-   * Registers a villager entity using `IsA(npcPrefab)`, `NpcBond` SoA buffers, and `HousedIn`.
+   * Checks whether `eid` currently exists in the bitECS world.
+   *
+   * @param eid Numeric entity ID to test.
+   * @returns `true` if `eid` is alive in the world.
+   * @throws Error Never thrown.
+   * @example
+   * if (ecs.isEntityAlive(eid)) ecs.despawnEntity(eid);
+   */
+  public isEntityAlive(eid: number): boolean {
+    return entityExists(this.world, eid);
+  }
+
+  /**
+   * Registers a villager entity using `npcTag`, `NpcBond` SoA buffers, and `HousedIn`.
    *
    * @param roleId Villager role identifier (`'engineer' | 'medic' | 'defender' | 'merchant'`).
    * @param houseStringId Registered string ID of the villager's dollhouse.
@@ -357,14 +411,16 @@ export class IslandEcsWorld {
     NpcBond.furnitureStage[eid] = 0;
     NpcBond.hangoutCount[eid] = 0;
     addComponent(this.world, eid, NpcBond);
-    addComponent(this.world, eid, IsA(this.npcPrefab));
+    addComponent(this.world, eid, this.npcTag);
     const houseEid = this.idToEid.get(houseStringId);
-    if (houseEid !== undefined) addComponent(this.world, eid, this.housedIn(houseEid));
+    if (houseEid !== undefined && this._assertAlive('registerVillager.house', houseEid, { stringId: houseStringId })) {
+      addComponent(this.world, eid, this.housedIn(houseEid));
+    }
     return eid;
   }
 
   /**
-   * Queries all villager entities inheriting from `npcPrefab` via `IsA`.
+   * Queries all villager entities marked with `npcTag`.
    *
    * @returns Packed bitECS query result of villager entity IDs.
    * @throws Error Never thrown during queries.
@@ -372,7 +428,7 @@ export class IslandEcsWorld {
    * const villagerEids = ecs.queryVillagers();
    */
   public queryVillagers(): QueryResult {
-    return query(this.world, [IsA(this.npcPrefab)]);
+    return query(this.world, [this.npcTag]);
   }
 
   /**
@@ -386,6 +442,149 @@ export class IslandEcsWorld {
    */
   public getVillagerHouseEid(npcEid: number): number | undefined {
     return getRelationTargets(this.world, npcEid, this.housedIn)[0];
+  }
+
+  /**
+   * Registers an interactive defense plinth slot with an initial `EMPTY` `Defense` component.
+   *
+   * @param slotIndex Zero-based slot index inside `DEFENSE_SLOT_XS`.
+   * @param stringId Unique slot string ID (`'slot-0'`, etc.).
+   * @param x World X coordinate.
+   * @param range Maximum X interaction range.
+   * @returns Allocated bitECS numeric entity ID.
+   * @throws Error Never thrown for valid slot parameters.
+   * @example
+   * const eid = ecs.registerDefenseSlot(0, 'slot-0', -26, 3.2);
+   */
+  public registerDefenseSlot(
+    slotIndex: number,
+    stringId: string,
+    x: number,
+    range: number,
+  ): number {
+    const eid = this._registerInteractable(
+      stringId, x, 0, 1.55, INTERACTABLE_KIND.DEFENSE_SLOT, INTERACTABLE_PRIORITY.DEFENSE_SLOT, range, slotIndex,
+    );
+    const { Defense } = this.components;
+    Defense.slotIndex[eid] = slotIndex;
+    Defense.kind[eid] = DEFENSE_KIND.EMPTY;
+    Defense.level[eid] = 0;
+    Defense.hp[eid] = 0;
+    Defense.maxHp[eid] = 0;
+    Defense.fireCooldown[eid] = 0;
+    addComponent(this.world, eid, Defense);
+    return eid;
+  }
+
+  /**
+   * Spawns a transient night enemy entity tagged with `enemyTag`, writing SoA fields before `addComponent`.
+   *
+   * @param kind Enemy archetype code from `ENEMY_KIND`.
+   * @param x Initial X position along the road.
+   * @param side Origin flank sign (`-1` left, `1` right).
+   * @param hp Starting hit points.
+   * @param speed Approach speed toward Town Heart in world units/sec.
+   * @returns Recycled numeric bitECS `eid`.
+   * @throws Error Never thrown for valid parameters.
+   * @example
+   * const eid = ecs.spawnEnemyEntity(0, -54, -1, 24, 3.2);
+   */
+  public spawnEnemyEntity(
+    kind: number,
+    x: number,
+    side: -1 | 1,
+    hp: number,
+    speed: number,
+  ): number {
+    const eid = addEntity(this.world);
+    const { Position, Enemy } = this.components;
+    Position.x[eid] = x;
+    Position.y[eid] = 0;
+    Position.z[eid] = 0;
+    Enemy.kind[eid] = kind;
+    Enemy.hp[eid] = hp;
+    Enemy.maxHp[eid] = hp;
+    Enemy.speed[eid] = speed;
+    Enemy.side[eid] = side;
+    Enemy.attackCooldown[eid] = 0;
+    addComponent(this.world, eid, Position);
+    addComponent(this.world, eid, Enemy);
+    if (this._assertAlive('spawnEnemyEntity.enemyTag', eid)) addComponent(this.world, eid, this.enemyTag);
+    return eid;
+  }
+
+  /**
+   * Queries all active enemy entities matching `[enemyTag, Position, Enemy]`.
+   *
+   * @returns Packed bitECS query result of enemy entity IDs.
+   * @throws Error Never thrown during queries.
+   * @example
+   * for (const eid of ecs.queryEnemies()) stepEnemy(eid);
+   */
+  public queryEnemies(): QueryResult {
+    return query(this.world, [this.enemyTag, this.components.Position, this.components.Enemy]);
+  }
+
+  /**
+   * Queries all defense slot entities matching `[Position, Defense]`.
+   *
+   * @returns Packed bitECS query result of defense entity IDs.
+   * @throws Error Never thrown during queries.
+   * @example
+   * for (const eid of ecs.queryDefenses()) stepTurret(eid);
+   */
+  public queryDefenses(): QueryResult {
+    return query(this.world, [this.components.Position, this.components.Defense]);
+  }
+
+  /**
+   * Records an exclusive bitECS `targeting` relation edge from a turret entity to an enemy entity.
+   *
+   * @param defenseEid Defense entity ID.
+   * @param enemyEid Target enemy entity ID.
+   * @throws Error Never thrown for valid entity IDs.
+   * @example
+   * ecs.setTurretTarget(turretEid, enemyEid);
+   */
+  public setTurretTarget(defenseEid: number, enemyEid: number): void {
+    if (!this._assertAlive('setTurretTarget.defense', defenseEid, { targetEid: enemyEid })) return;
+    if (!this._assertAlive('setTurretTarget.enemy', enemyEid, { targetEid: defenseEid })) return;
+    addComponent(this.world, defenseEid, this.targeting(enemyEid));
+  }
+
+  /**
+   * Resolves the enemy entity ID currently targeted by `defenseEid`, if any.
+   *
+   * @param defenseEid Defense entity ID.
+   * @returns Targeted enemy `eid` or `undefined` when no target is attached.
+   * @throws Error Never thrown.
+   * @example
+   * const targetEid = ecs.getTurretTarget(turretEid);
+   */
+  public getTurretTarget(defenseEid: number): number | undefined {
+    if (!entityExists(this.world, defenseEid)) return undefined;
+    return getRelationTargets(this.world, defenseEid, this.targeting)[0];
+  }
+
+  private _assertAlive(
+    operation: string,
+    eid: number,
+    meta?: { targetEid?: number; stringId?: string },
+  ): boolean {
+    if (entityExists(this.world, eid)) return true;
+    this.errorLogger({
+      operation,
+      eid,
+      ...meta,
+      detail: `Entity ${eid} does not exist in world during ${operation}`,
+    });
+    return false;
+  }
+
+  private _deleteStringMapping(eid: number, strId: string | undefined): void {
+    if (strId === undefined) return;
+    this.eidToId.delete(eid);
+    this.idToEid.delete(strId);
   }
 
   private _createComponents(): IslandEcsComponents {
@@ -417,6 +616,22 @@ export class IslandEcsWorld {
         furnitureStage: new Uint8Array(MAX_ENTITIES),
         hangoutCount: new Uint16Array(MAX_ENTITIES),
       },
+      Enemy: {
+        kind: new Uint8Array(MAX_ENTITIES),
+        hp: new Float32Array(MAX_ENTITIES),
+        maxHp: new Float32Array(MAX_ENTITIES),
+        speed: new Float32Array(MAX_ENTITIES),
+        side: new Int8Array(MAX_ENTITIES),
+        attackCooldown: new Float32Array(MAX_ENTITIES),
+      },
+      Defense: {
+        slotIndex: new Uint8Array(MAX_ENTITIES),
+        kind: new Uint8Array(MAX_ENTITIES),
+        level: new Uint8Array(MAX_ENTITIES),
+        hp: new Float32Array(MAX_ENTITIES),
+        maxHp: new Float32Array(MAX_ENTITIES),
+        fireCooldown: new Float32Array(MAX_ENTITIES),
+      },
     };
   }
 
@@ -442,6 +657,8 @@ export class IslandEcsWorld {
   }
 
   private _createNamedEntity(stringId: string, x: number, y: number, z: number): number {
+    const prev = this.idToEid.get(stringId);
+    if (prev !== undefined) this.despawnEntity(prev);
     const eid = addEntity(this.world);
     const { Position } = this.components;
     this.idToEid.set(stringId, eid);

@@ -32,9 +32,11 @@ describe('HudLayout', () => {
     expect(m.cardBottomOffset).toBeGreaterThan(m.actionButtonHeight);
   });
 
-  it('rejects non-positive dimensions', () => {
+  it('rejects non-positive or non-finite dimensions', () => {
     const layout = new HudLayout();
     expect(() => layout.compute(0, 800)).toThrow(RangeError);
     expect(() => layout.compute(390, -10)).toThrow(RangeError);
+    expect(() => layout.compute(Number.NaN, 800)).toThrow(RangeError);
+    expect(() => layout.compute(390, Number.POSITIVE_INFINITY)).toThrow(RangeError);
   });
 });

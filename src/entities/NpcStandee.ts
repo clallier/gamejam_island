@@ -18,6 +18,7 @@ export class NpcStandee {
   private readonly model: AssembledModel;
   private readonly phaseOffset: number;
   private celebrateTimer = 0;
+  private patrolX: number | null = null;
 
   /**
    * Positions an assembled modular NPC inside/in front of their dollhouse plot.
@@ -50,11 +51,23 @@ export class NpcStandee {
     const bob = Math.sin(elapsedSeconds * NPC_BOB_SPEED + this.phaseOffset) * NPC_BOB_AMPLITUDE;
     if (this.celebrateTimer > 0) this.celebrateTimer = Math.max(0, this.celebrateTimer - deltaSeconds);
     const hop = this.celebrateTimer > 0 ? Math.abs(Math.sin(this.celebrateTimer * Math.PI * 3)) * 0.35 : 0;
-    this.model.root.position.y = NpcStandee.BASE_Y + bob + hop;
+    const alpha = 1 - Math.exp(-6 * Math.max(0, deltaSeconds));
+    this._updatePosition(alpha, bob + hop);
     const dx = playerX - this.model.root.position.x;
     const targetYaw = Math.abs(dx) <= NPC_LOOK_DISTANCE ? Math.atan2(dx, -1.6) : Math.PI;
-    const alpha = 1 - Math.exp(-6 * Math.max(0, deltaSeconds));
     this.model.root.rotation.y = this._lerpAngle(this.model.root.rotation.y, targetYaw, alpha);
+  }
+
+  /**
+   * Assigns an active road X coordinate for night patrol, or `null` to return home.
+   *
+   * @param x Target road X coordinate, or `null` for porch rest position.
+   * @throws Error Never thrown.
+   * @example
+   * standee.setPatrolX(22);
+   */
+  public setPatrolX(x: number | null): void {
+    this.patrolX = x;
   }
 
   /**
@@ -77,6 +90,14 @@ export class NpcStandee {
    */
   public getPlot(): DollhousePlot {
     return this.plot;
+  }
+
+  private _updatePosition(alpha: number, yOffset: number): void {
+    const targetX = this.patrolX ?? (this.plot.x + 0.75);
+    const targetZ = this.patrolX !== null ? 0.4 : NpcStandee.BASE_Z;
+    this.model.root.position.x += (targetX - this.model.root.position.x) * alpha;
+    this.model.root.position.z += (targetZ - this.model.root.position.z) * alpha;
+    this.model.root.position.y = NpcStandee.BASE_Y + yOffset;
   }
 
   private _lerpAngle(from: number, to: number, alpha: number): number {

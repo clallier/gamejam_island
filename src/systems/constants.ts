@@ -99,3 +99,33 @@ export const VILLAGER_CONFIGS: Record<NpcRoleId, VillagerRoleConfig> = {
     ],
   },
 };
+
+export const TOWN_HEART_MAX_HP = 100;
+export const TOWN_HEART_DAWN_HEAL = 20;
+export const ENEMY_BREACH_BORDER_PULL = 2.0;
+
+export const TURRET_BUILD_COST: Partial<Record<ResourceKey, number>> = { wood: 3, stone: 2 };
+export const TURRET_UPGRADE_COST: Partial<Record<ResourceKey, number>> = { wood: 2, stone: 2, shards: 1 };
+export const TURRET_REPAIR_COST: Partial<Record<ResourceKey, number>> = { wood: 1 };
+export const TURRET_RANGE = 14;
+export const TURRET_BASE_COOLDOWN = 1.15;
+export const TURRET_BASE_DAMAGE = 12;
+export const TURRET_MAX_HP = 55;
+
+export const ENEMY_SPRITE_HP = 24;
+export const ENEMY_SPRITE_SPEED = 3.2;
+export const ENEMY_SPRITE_DAMAGE = 8;
+export const ENEMY_SPRITE_COOLDOWN = 1.1;
+
+export const ENEMY_BRUTE_HP = 56;
+export const ENEMY_BRUTE_SPEED = 1.9;
+export const ENEMY_BRUTE_DAMAGE = 16;
+export const ENEMY_BRUTE_COOLDOWN = 1.5;
+
+export const PLAYER_SHOT_RANGE = 11;
+export const PLAYER_SHOT_DAMAGE = 14;
+
+export const DEFENDER_PATROL_SPEED = 5.2;
+export const DEFENDER_ATTACK_RANGE = 2.4;
+export const DEFENDER_ATTACK_DAMAGE = 12;
+export const DEFENDER_ATTACK_COOLDOWN = 0.85;

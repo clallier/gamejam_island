@@ -8,17 +8,21 @@ import { GltfPartProvider } from '../../src/assets/GltfPartProvider.ts';
 import { ModularAssemblyFactory } from '../../src/assets/ModularAssemblyFactory.ts';
 import { ProceduralPartProvider } from '../../src/assets/ProceduralPartProvider.ts';
 import { StylizedMaterialFactory } from '../../src/assets/StylizedMaterialFactory.ts';
-import { IslandEcsWorld } from '../../src/ecs/IslandEcsWorld.ts';
+import { type EcsGuardError, IslandEcsWorld } from '../../src/ecs/IslandEcsWorld.ts';
 import { DayNightRig } from '../../src/engine/DayNightRig.ts';
 import { DioramaCamera } from '../../src/engine/DioramaCamera.ts';
 import type { InputSnapshot } from '../../src/engine/InputController.ts';
 import { PhysicsWorld } from '../../src/engine/PhysicsWorld.ts';
 import { PLAYER_MAX_PEBBLES } from '../../src/entities/constants.ts';
+import { EnemyVisualSystem } from '../../src/entities/EnemyVisualSystem.ts';
 import { LootDropSystem } from '../../src/entities/LootDropSystem.ts';
 import { PlayerController } from '../../src/entities/PlayerController.ts';
 import { IslandEnvironment } from '../../src/scene/IslandEnvironment.ts';
-import { INTERACT_RANGE } from '../../src/systems/constants.ts';
+import { INTERACT_RANGE, LOOT_MAX_ACTIVE } from '../../src/systems/constants.ts';
+import { DefenseStructureSystem } from '../../src/systems/DefenseStructureSystem.ts';
 import { PlantingSystem } from '../../src/systems/PlantingSystem.ts';
+import { WaveCombatSystem } from '../../src/systems/WaveCombatSystem.ts';
+import { DEFENSE_SLOT_XS } from '../../src/world/constants.ts';
 import { CorruptionField } from '../../src/world/CorruptionField.ts';
 import { InventoryStore } from '../../src/world/InventoryStore.ts';
 import { IslandStrip } from '../../src/world/IslandStrip.ts';
@@ -59,7 +63,8 @@ describe('PhysicsWorld + bitECS + IslandEnvironment + PlayerController + Pooled 
     const assembly = new ModularAssemblyFactory(scene, gltf);
     const lighting = new DayNightRig(scene, materials);
     const camera = new DioramaCamera(scene);
-    const ecs = new IslandEcsWorld();
+    const errors: EcsGuardError[] = [];
+    const ecs = new IslandEcsWorld((err) => errors.push(err));
     const strip = new IslandStrip();
     const corruption = new CorruptionField();
     const resourceNodes = new ResourceNodeCatalog();
@@ -91,7 +96,7 @@ describe('PhysicsWorld + bitECS + IslandEnvironment + PlayerController + Pooled 
       scene.dispose();
       engine.dispose();
     });
-    return { scene, ecs, player, env, lighting, corruption, resourceNodes, inventory, planting, loot, clock };
+    return { scene, ecs, errors, player, env, lighting, corruption, resourceNodes, inventory, planting, loot, clock, assembly, blueprints, materials };
   }
 
   function stepFrames(
@@ -183,5 +188,64 @@ describe('PhysicsWorld + bitECS + IslandEnvironment + PlayerController + Pooled 
     ctx.env.furnishDollhouse('engineer', 'furniture_tool_chest', 'woodWarm');
     expect(ctx.scene.getMeshByName('house-engineer-interior_left-chest')).not.toBeNull();
     stepFrames(ctx, 10, IDLE_INPUT);
+
+    // Night defense turret + reactive EnemyVisualSystem lifecycle
+    const enemyVisuals = new EnemyVisualSystem(ctx.scene, ctx.ecs, ctx.assembly, ctx.blueprints, ctx.materials, ctx.lighting);
+    const enemyEid = ctx.ecs.spawnEnemyEntity(0, -40, -1, 24, 3.2);
+    enemyVisuals.update(1.0, 0.016);
+    expect(enemyVisuals.getVisualCount()).toBe(1);
+    ctx.ecs.despawnEntity(enemyEid);
+    expect(enemyVisuals.getVisualCount()).toBe(0);
+    ctx.env.syncDefenseVisual(0, -26, 1);
+    expect(ctx.scene.getTransformNodeByName('defense-slot-0')).not.toBeNull();
+    enemyVisuals.dispose();
+  });
+
+  it('caps active Havok loot at LOOT_MAX_ACTIVE, auto-collects overflow, preserves shared materials across combat reset, and logs zero ECS errors', async () => {
+    const ctx = await bootScene();
+    DEFENSE_SLOT_XS.forEach((x, idx) => ctx.ecs.registerDefenseSlot(idx, `slot-${idx}`, x, INTERACT_RANGE));
+    const defenses = new DefenseStructureSystem(ctx.ecs, DEFENSE_SLOT_XS);
+    const combat = new WaveCombatSystem(ctx.ecs);
+    const enemyVisuals = new EnemyVisualSystem(
+      ctx.scene, ctx.ecs, ctx.assembly, ctx.blueprints, ctx.materials, ctx.lighting,
+    );
+    disposables.push(() => enemyVisuals.dispose());
+
+    // Overflow Havok loot beyond LOOT_MAX_ACTIVE far from player so only overflow collects oldest
+    const shardsBefore = ctx.inventory.getAmount('shards');
+    const overflow = 6;
+    ctx.loot.spawnBurst('shards', LOOT_MAX_ACTIVE + overflow, 38, 2.0, ctx.inventory);
+    expect(ctx.loot.getActiveCount()).toBe(LOOT_MAX_ACTIVE);
+    expect(ctx.inventory.getAmount('shards')).toBe(shardsBefore + overflow);
+    expect(ctx.loot.getPooledCount()).toBe(0);
+
+    // Build, upgrade Lv 2, then destroy/reset turret visuals + slay night enemies and verify shared materials remain alive
+    ctx.inventory.add('wood', 20);
+    ctx.inventory.add('stone', 20);
+    ctx.inventory.add('shards', 10);
+    defenses.interactSlot(0, ctx.inventory);
+    ctx.env.syncDefenseVisual(0, DEFENSE_SLOT_XS[0]!, 1);
+    defenses.interactSlot(0, ctx.inventory);
+    ctx.env.syncDefenseVisual(0, DEFENSE_SLOT_XS[0]!, 2);
+
+    const neonMat = ctx.materials.getMaterial('corruptionNeon');
+    const stoneMat = ctx.materials.getMaterial('stoneWarm');
+    const amberMat = ctx.materials.getMaterial('amberGlow');
+
+    for (let i = 0; i < 6; i++) {
+      const res = combat.step(0.6, 'night', 1, 1.25, 6, ctx.corruption);
+      res.shots.forEach((s) => enemyVisuals.spawnTracer(s.fromX, s.toX));
+      enemyVisuals.update(i * 0.6, 0.6);
+    }
+
+    combat.reset();
+    defenses.resetAll();
+    ctx.env.syncDefenseVisual(0, DEFENSE_SLOT_XS[0]!, 0);
+    ctx.lighting.update(ctx.clock.jumpToPhase('night'), 0);
+
+    expect(ctx.scene.materials).toContain(neonMat);
+    expect(ctx.scene.materials).toContain(stoneMat);
+    expect(ctx.scene.materials).toContain(amberMat);
+    expect(ctx.errors).toEqual([]);
   });
 });

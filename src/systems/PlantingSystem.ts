@@ -37,6 +37,7 @@ export class PlantingSystem {
    * const reason = planting.getPlantBlockReason(20, inventory);
    */
   public getPlantBlockReason(x: number, inventory: InventoryStore): PlantBlockReason {
+    if (!Number.isFinite(x)) return 'town';
     const absX = Math.abs(x);
     if (absX < PLANT_MIN_X || absX > PLANT_MAX_X) return 'town';
     if (this._hasNearbyBloom(x)) return 'spacing';
@@ -78,10 +79,11 @@ export class PlantingSystem {
     if (!this.canPlantAt(x, inventory) || !inventory.spend(PLANT_COST)) {
       return null;
     }
+    const safeMultiplier = Number.isFinite(borderPushMultiplier) ? Math.max(0, borderPushMultiplier) : 1;
     const side: IslandSide = x < 0 ? 'left' : 'right';
     const flora: PlantedFlora = { id: `bloom-${this.nextId++}`, side, x, z: PLANT_Z };
     this.planted.push(flora);
-    corruption.pushBorder(side, PLANT_BORDER_PUSH * borderPushMultiplier);
+    corruption.pushBorder(side, PLANT_BORDER_PUSH * safeMultiplier);
     return flora;
   }
 

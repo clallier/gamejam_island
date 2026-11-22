@@ -13,5 +13,13 @@ describe('InventoryStore', () => {
 
     expect(store.spend({ wood: 3, stone: 1 })).toBe(true);
     expect(store.getSnapshot()).toEqual({ wood: 2, stone: 0, petals: 1, shards: 0 });
+
+    // Non-finite and undefined partial costs must not corrupt balances to NaN
+    expect(store.add('wood', Number.NaN)).toBe(2);
+    expect(store.add('wood', Number.POSITIVE_INFINITY)).toBe(2);
+    expect(store.canAfford({ wood: undefined, stone: 0 })).toBe(true);
+    expect(store.canAfford({ wood: Number.NaN })).toBe(false);
+    expect(store.spend({ wood: undefined })).toBe(true);
+    expect(store.getAmount('wood')).toBe(2);
   });
 });

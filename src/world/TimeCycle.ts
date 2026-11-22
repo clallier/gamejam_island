@@ -63,7 +63,7 @@ export class TimeCycle {
    * const snap = clock.advance(0.016);
    */
   public advance(deltaSeconds: number): TimeSnapshot {
-    const safeDelta = Math.max(0, deltaSeconds) * this.timeScale;
+    const safeDelta = Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) * this.timeScale : 0;
     const next = this.normalizedTime + safeDelta / this.cycleDurationSeconds;
     if (next >= 1) {
       this.dayNumber += Math.floor(next);

@@ -54,4 +54,32 @@ describe('InputController', () => {
     expect(next.moveX).toBe(0);
     expect(next.tossPressed).toBe(false);
   });
+
+  it('ignores repeated keydown events, handles keyup and alternate bindings (AZERTY/arrows/action keys)', () => {
+    const input = new InputController();
+    controllers.push(input);
+    input.attachKeyboard(window);
+
+    // Non-repeat triggers jump, repeat does not re-queue after consume
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }));
+    expect(input.consumeSnapshot().jumpPressed).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', repeat: true }));
+    expect(input.consumeSnapshot().jumpPressed).toBe(false);
+
+    // KeyQ / ArrowLeft -> -1, keyup clears, ArrowRight -> +1
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' }));
+    expect(input.consumeSnapshot().moveX).toBe(-1);
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyQ' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowRight' }));
+    expect(input.consumeSnapshot().moveX).toBe(1);
+
+    // KeyF / Enter -> interact, KeyJ / ShiftLeft -> toss, KeyZ -> jump
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyJ' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyZ' }));
+    const snap = input.consumeSnapshot();
+    expect(snap.interactPressed).toBe(true);
+    expect(snap.tossPressed).toBe(true);
+    expect(snap.jumpPressed).toBe(true);
+  });
 });
