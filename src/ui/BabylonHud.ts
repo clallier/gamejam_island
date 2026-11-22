@@ -116,6 +116,30 @@ export class BabylonHud {
   }
 
   /**
+   * Registers the callback invoked when toggling the audio mute button.
+   *
+   * @param callback Mute toggle handler.
+   * @throws Error Never thrown.
+   * @example
+   * hud.setOnToggleMute(() => hud.setMuted(audio.toggleMute()));
+   */
+  public setOnToggleMute(callback: () => void): void {
+    this.topBar.setOnToggleMute(callback);
+  }
+
+  /**
+   * Updates the mute toggle icon to reflect audible (`🔊`) vs muted (`🔇`) state.
+   *
+   * @param muted Whether audio playback is muted.
+   * @throws Error Never thrown.
+   * @example
+   * hud.setMuted(true);
+   */
+  public setMuted(muted: boolean): void {
+    this.topBar.setMuted(muted);
+  }
+
+  /**
    * Shows or hides the Town Heart fallen restart banner.
    *
    * @param visible `true` when game over.

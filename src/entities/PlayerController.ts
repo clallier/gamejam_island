@@ -44,6 +44,8 @@ export class PlayerController {
   private facing = 1;
   private coyoteTimer = 0;
   private stridePhase = 0;
+  private squashY = 1;
+  private wasGrounded = true;
 
   /**
    * Spawns the player Havok capsule and parents the modular visual hero.
@@ -84,10 +86,24 @@ export class PlayerController {
     this._enforceOneAxisBounds();
     const vel = this.physics.getLinearVelocity(this.aggregate);
     const grounded = this._updateGroundedState(deltaSeconds, vel.y);
+    if (grounded && !this.wasGrounded) this.squashY = 0.78;
+    this.wasGrounded = grounded;
     this._applyHorizontalVelocity(input.moveX, vel.y);
     if (input.jumpPressed && grounded) this._triggerJump();
     if (input.tossPressed) this._tossPebble();
     this._animateVisual(deltaSeconds, input.moveX, grounded);
+  }
+
+  /**
+   * Returns current vertical squash-and-stretch factor (`1` at rest, `> 1` on jump).
+   *
+   * @returns Current Y scale multiplier.
+   * @throws Error Never thrown.
+   * @example
+   * expect(player.getSquashY()).toBeGreaterThan(1.05);
+   */
+  public getSquashY(): number {
+    return this.squashY;
   }
 
   /**
@@ -153,11 +169,13 @@ export class PlayerController {
 
   private _triggerJump(): void {
     this.coyoteTimer = 0;
+    this.squashY = 1.24;
     const vel = this.physics.getLinearVelocity(this.aggregate);
     this.physics.setLinearVelocity(this.aggregate, new Vector3(vel.x, PLAYER_JUMP_IMPULSE, 0));
   }
 
   private _tossPebble(): void {
+    this.squashY = 0.88;
     if (this.pebbles.length >= PLAYER_MAX_PEBBLES) {
       this.pebbles.shift()?.dispose();
     }
@@ -178,12 +196,14 @@ export class PlayerController {
   }
 
   private _applySquashAndStride(deltaSeconds: number, moveX: number, grounded: boolean): void {
+    const damp = 1 - Math.exp(-14 * Math.max(0, deltaSeconds));
+    this.squashY = Scalar.Lerp(this.squashY, 1, damp);
+    let targetY = this.squashY;
     if (Math.abs(moveX) > 0.1 && grounded) {
       this.stridePhase += deltaSeconds * 13;
-      const bounce = Math.abs(Math.sin(this.stridePhase));
-      this.visualRoot.scaling.set(1 - bounce * 0.06, 1 + bounce * 0.08, 1 - bounce * 0.06);
-      return;
+      targetY *= 1 + Math.abs(Math.sin(this.stridePhase)) * 0.08;
     }
-    this.visualRoot.scaling.set(1, 1, 1);
+    const invXZ = 1 / Math.sqrt(Math.max(0.5, targetY));
+    this.visualRoot.scaling.set(invXZ, targetY, invXZ);
   }
 }

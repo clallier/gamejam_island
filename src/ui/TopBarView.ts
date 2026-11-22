@@ -29,6 +29,8 @@ export class TopBarView {
   private readonly zoneText: TextBlock;
   private readonly cycleBtn: Button;
   private readonly cycleBtnText: TextBlock;
+  private readonly muteBtn: Button;
+  private readonly muteBtnText: TextBlock;
   private readonly heartPill: Rectangle;
   private readonly heartText: TextBlock;
   private readonly purityLabel: TextBlock;
@@ -42,6 +44,7 @@ export class TopBarView {
   private readonly gameOverBanner: Rectangle;
   private toastRemaining = 0;
   private onCyclePhase: (() => void) | null = null;
+  private onToggleMute: (() => void) | null = null;
   private onRestart: (() => void) | null = null;
   private currentTrackWidth = TopBarView.TRACK_WIDTH_DESKTOP;
 
@@ -60,7 +63,11 @@ export class TopBarView {
     const cyclePair = this._createCycleButton();
     this.cycleBtn = cyclePair.button;
     this.cycleBtnText = cyclePair.label;
+    const mutePair = this._createMuteButton();
+    this.muteBtn = mutePair.button;
+    this.muteBtnText = mutePair.label;
     this.statusRow.addControl(this.cycleBtn);
+    this.statusRow.addControl(this.muteBtn);
     this.heartText = this._addTextPill(this.metricsRow, 'hud-heart', '❤ 100', HUD_THEME.accentAmber, HUD_THEME.borderWarm);
     this.heartPill = this.pillBoxes[this.pillBoxes.length - 1]!;
     const purity = this._createPurityPill();
@@ -120,6 +127,30 @@ export class TopBarView {
    */
   public setOnCyclePhase(callback: () => void): void {
     this.onCyclePhase = callback;
+  }
+
+  /**
+   * Registers the callback fired when the user clicks/taps the audio mute toggle button.
+   *
+   * @param callback Mute toggle handler.
+   * @throws Error Never thrown.
+   * @example
+   * topBar.setOnToggleMute(() => hud.setMuted(audio.toggleMute()));
+   */
+  public setOnToggleMute(callback: () => void): void {
+    this.onToggleMute = callback;
+  }
+
+  /**
+   * Updates the mute button glyph (`🔇` when muted, `🔊` when audible).
+   *
+   * @param muted Current audio mute state.
+   * @throws Error Never thrown.
+   * @example
+   * topBar.setMuted(true);
+   */
+  public setMuted(muted: boolean): void {
+    this.muteBtnText.text = muted ? '🔇' : '🔊';
   }
 
   /**
@@ -242,6 +273,21 @@ export class TopBarView {
     return { button, label };
   }
 
+  private _createMuteButton(): { button: Button; label: TextBlock } {
+    const button = new Button('btn-mute-audio');
+    button.widthInPixels = 32;
+    button.heightInPixels = 32;
+    button.cornerRadius = 16;
+    button.thickness = 1.5;
+    button.color = HUD_THEME.borderWarm;
+    button.background = HUD_THEME.surfaceButton;
+    button.isPointerBlocker = true;
+    const label = this._makeLabel('btn-mute-audio-label', '🔊', HUD_THEME.textPrimary);
+    button.addControl(label);
+    button.onPointerClickObservable.add(() => this.onToggleMute?.());
+    return { button, label };
+  }
+
   private _createPurityPill(): {
     container: Rectangle;
     label: TextBlock;
@@ -338,10 +384,11 @@ export class TopBarView {
 
   private _applyFontAndWidths(metrics: HudLayoutMetrics): void {
     const compact = metrics.isCompact;
-    const scale = compact ? Math.min(1, (metrics.viewportWidth - 20) / 390) : 1;
-    this.pillBoxes[0]!.widthInPixels = Math.round((compact ? 112 : 126) * scale);
-    this.pillBoxes[1]!.widthInPixels = Math.round((compact ? 104 : 118) * scale);
-    this.cycleBtn.widthInPixels = Math.round((compact ? 118 : 136) * scale);
+    const scale = compact ? Math.min(1, (metrics.viewportWidth - 20) / 412) : 1;
+    this.pillBoxes[0]!.widthInPixels = Math.round((compact ? 106 : 126) * scale);
+    this.pillBoxes[1]!.widthInPixels = Math.round((compact ? 98 : 118) * scale);
+    this.cycleBtn.widthInPixels = Math.round((compact ? 114 : 136) * scale);
+    this.muteBtn.widthInPixels = Math.max(28, Math.round(32 * scale));
     this.heartPill.widthInPixels = Math.round((compact ? 58 : 66) * scale);
     this.pillBoxes[4]!.widthInPixels = Math.round((compact ? 136 : 168) * scale);
     this.pillBoxes[5]!.widthInPixels = Math.round((compact ? 168 : 210) * scale);

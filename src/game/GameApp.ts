@@ -5,6 +5,7 @@ import { GltfPartProvider } from '../assets/GltfPartProvider.ts';
 import { ModularAssemblyFactory } from '../assets/ModularAssemblyFactory.ts';
 import { ProceduralPartProvider } from '../assets/ProceduralPartProvider.ts';
 import { StylizedMaterialFactory } from '../assets/StylizedMaterialFactory.ts';
+import { SoundEffectRig } from '../audio/SoundEffectRig.ts';
 import { IslandEcsWorld } from '../ecs/IslandEcsWorld.ts';
 import { SimulationPipeline } from '../ecs/SimulationPipeline.ts';
 import { DayNightRig } from '../engine/DayNightRig.ts';
@@ -29,7 +30,7 @@ import { VillagerBondSystem } from '../systems/VillagerBondSystem.ts';
 import { WaveCombatSystem } from '../systems/WaveCombatSystem.ts';
 import { BabylonHud } from '../ui/BabylonHud.ts';
 import { HUD_THEME, NEXT_PHASE_MAP } from '../ui/constants.ts';
-import type { DollhousePlot, ResourceKey } from '../world/constants.ts';
+import type { DayPhase, DollhousePlot, ResourceKey } from '../world/constants.ts';
 import { CorruptionField } from '../world/CorruptionField.ts';
 import { InventoryStore } from '../world/InventoryStore.ts';
 import { IslandStrip } from '../world/IslandStrip.ts';
@@ -65,6 +66,7 @@ export class GameApp {
   private readonly resolver = new InteractionResolver();
   private readonly planting = new PlantingSystem();
   private readonly input = new InputController();
+  private readonly audio = new SoundEffectRig();
   private readonly hud: BabylonHud;
 
   private camera!: DioramaCamera;
@@ -77,6 +79,7 @@ export class GameApp {
   private focusedDollhouse: DollhousePlot | null = null;
   private elapsedSeconds = 0;
   private lastDayNumber = 1;
+  private lastPhase: DayPhase = 'day';
 
   /**
    * Initializes the Babylon engine, scene, and fullscreen Babylon GUI HUD.
@@ -124,6 +127,7 @@ export class GameApp {
     this.enemyVisuals?.dispose();
     this.environment?.dispose();
     this.input.dispose();
+    this.audio.dispose();
     this.hud.dispose();
     this.scene.dispose();
     this.engine.dispose();
@@ -185,6 +189,7 @@ export class GameApp {
       onFurnish: () => this._handleFurnish(),
     });
     this.hud.setOnRestart(() => this._restartIsland());
+    this.hud.setOnToggleMute(() => this.hud.setMuted(this.audio.toggleMute()));
     window.addEventListener('resize', this._handleResize);
   }
 
@@ -204,6 +209,8 @@ export class GameApp {
       return;
     }
     this.elapsedSeconds += dt;
+    if (frameInput.jumpPressed) this.audio.play('jump');
+    if (frameInput.tossPressed) this.audio.play('toss');
     this.player.update(dt, frameInput);
     const playerX = this.player.getX();
     const frame = this.pipeline.run(dt, this.elapsedSeconds, playerX);
@@ -220,7 +227,7 @@ export class GameApp {
     target: InteractionTarget | null,
   ): void {
     const timeSnap = this.timeCycle.advance(dt);
-    this._checkDayRegrowth(timeSnap.dayNumber);
+    this._checkPhaseTransitions(timeSnap.phase, timeSnap.dayNumber);
     this._stepCombat(dt, frameInput, playerX, timeSnap);
     this.lighting.update(timeSnap, playerX);
     this.camera.update(dt, this._getAspectRatio(), playerX, this.focusedDollhouse?.x ?? null);
@@ -251,11 +258,13 @@ export class GameApp {
       dt, timeSnap.phase, timeSnap.dayNumber,
       this.bonds.getTurretFireRateMultiplier(), this.bonds.getDefenderBonusDamage(), this.corruption,
     );
+    if (res.shots.length > 0) this.audio.play('turretShot');
     res.shots.forEach((s) => this.enemyVisuals.spawnTracer(s.fromX, s.toX));
     res.slain.forEach((k) => this.lootDrops.spawnBurst('shards', 1, k.x, 0, this.inventory));
     if (res.defenseDestroyed) this._syncAllDefenseVisuals('Defense Destroyed!');
     this.environment.setDefenderPatrolX(res.defenderPatrolX);
     this.enemyVisuals.update(this.elapsedSeconds, dt);
+    if (res.gameOver) this.audio.play('gameOver');
     this.hud.setGameOver(res.gameOver);
   }
 
@@ -299,6 +308,7 @@ export class GameApp {
       return;
     }
     this.environment.syncDefenseVisual(outcome.slotIndex, outcome.x, outcome.level);
+    this.audio.play('build');
     const label = outcome.action === 'built'
       ? 'Turret Built!'
       : outcome.action === 'upgraded'
@@ -320,6 +330,7 @@ export class GameApp {
     if (!outcome) return;
     if (outcome.depleted) this.ecs.setInteractableActive(id, false);
     this.environment.animateNodeHit(id, outcome.depleted);
+    this.audio.play('harvest');
     const dropCount = outcome.dropAmount + this.bonds.getHarvestBonus();
     this.lootDrops.spawnBurst(outcome.dropResource, dropCount, outcome.x, outcome.z, this.inventory);
   }
@@ -329,6 +340,7 @@ export class GameApp {
     if (!outcome) return;
     if (outcome.scrubbed) this.ecs.setInteractableActive(id, false);
     this.environment.animateMoundHit(id, outcome.scrubbed);
+    this.audio.play('scrub');
     if (!outcome.scrubbed) {
       this.hud.showToast('Scrubbing Corruption…', HUD_THEME.accentNeon);
       return;
@@ -343,6 +355,7 @@ export class GameApp {
     const flora = this.planting.plantAt(playerX, this.inventory, this.corruption, this.bonds.getPlantPushMultiplier());
     if (flora) {
       this.environment.spawnPlantedFlora(flora);
+      this.audio.play('plant');
       this.hud.showToast('Purifying Bloom Planted!', HUD_THEME.accentSage);
       return;
     }
@@ -355,6 +368,7 @@ export class GameApp {
     const outcome = this.bonds.hangOut(plot.roleId, this.inventory);
     if (!outcome) return;
     this.environment.celebrateNpc(plot.roleId);
+    this.audio.play(outcome.leveledUp ? 'levelUp' : 'bond');
     const petalNote = outcome.bonusPetal > 0 ? ' · +1 🌸' : '';
     const msg = outcome.leveledUp
       ? `${plot.npcName} Bond Lv ${outcome.newLevel} Unlocked!`
@@ -371,6 +385,7 @@ export class GameApp {
       return;
     }
     this.environment.celebrateNpc(plot.roleId);
+    this.audio.play(outcome.leveledUp ? 'levelUp' : 'bond');
     const msg = outcome.leveledUp
       ? `${plot.npcName} Bond Lv ${outcome.newLevel} Unlocked!`
       : `Gifted ${plot.npcName} (+${outcome.xpGained} XP)`;
@@ -383,6 +398,7 @@ export class GameApp {
     const outcome = this.bonds.furnishRoom(plot.roleId, this.inventory);
     if (!outcome) return;
     this.environment.furnishDollhouse(plot.roleId, outcome.partId, outcome.paletteKey);
+    this.audio.play(outcome.leveledUp ? 'levelUp' : 'build');
     const msg = outcome.leveledUp
       ? `${outcome.label} Built · Bond Lv ${outcome.newLevel}!`
       : `Placed ${outcome.label} in ${plot.roomTitle}`;
@@ -402,14 +418,24 @@ export class GameApp {
     const parts = (Object.entries(collected) as Array<[ResourceKey, number]>)
       .map(([key, count]) => `+${count} ${GameApp.RESOURCE_LABELS[key]}`);
     if (parts.length > 0) {
+      this.audio.play('pickup');
       this.hud.showToast(parts.join(' · '), HUD_THEME.accentAmber);
     }
+  }
+
+  private _checkPhaseTransitions(phase: DayPhase, dayNumber: number): void {
+    if (phase !== this.lastPhase) {
+      if (phase === 'night') this.audio.play('nightDrum');
+      this.lastPhase = phase;
+    }
+    this._checkDayRegrowth(dayNumber);
   }
 
   private _checkDayRegrowth(dayNumber: number): void {
     if (dayNumber <= this.lastDayNumber) return;
     this.lastDayNumber = dayNumber;
     this.waveCombat.healTownHeart(TOWN_HEART_DAWN_HEAL);
+    this.audio.play('dawnChime');
     const count = this.resourceNodes.regrowAll();
     const dawnPetals = this.bonds.getDawnPetalBonus();
     if (dawnPetals > 0) this.inventory.add('petals', dawnPetals);
@@ -428,7 +454,9 @@ export class GameApp {
     this.defenses.resetAll();
     this._syncAllDefenseVisuals();
     this.hud.setGameOver(false);
+    this.lastPhase = 'day';
     this.timeCycle.jumpToPhase('day');
+    this.audio.play('dawnChime');
     this.hud.showToast('Island Restored — Defend Dawn!', HUD_THEME.accentSage);
   }
 

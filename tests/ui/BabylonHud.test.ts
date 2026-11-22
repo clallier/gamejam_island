@@ -297,4 +297,22 @@ describe('BabylonHud (@babylonjs/gui)', () => {
     rightBtn.onPointerOutObservable.notifyObservers(null as never);
     expect(input.consumeSnapshot().moveX).toBe(0);
   });
+
+  it('toggles audio mute glyph and invokes onToggleMute callback from btn-mute-audio', () => {
+    const { hud } = createHudHarness();
+    const onMute = vi.fn();
+    hud.setOnToggleMute(onMute);
+
+    const muteBtn = hud.getControlByName('btn-mute-audio') as Button;
+    const muteLabel = hud.getControlByName('btn-mute-audio-label') as TextBlock;
+    expect(muteLabel.text).toBe('🔊');
+
+    muteBtn.onPointerClickObservable.notifyObservers(null as never);
+    expect(onMute).toHaveBeenCalledTimes(1);
+
+    hud.setMuted(true);
+    expect(muteLabel.text).toBe('🔇');
+    hud.setMuted(false);
+    expect(muteLabel.text).toBe('🔊');
+  });
 });

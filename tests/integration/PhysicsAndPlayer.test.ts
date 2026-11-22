@@ -142,8 +142,10 @@ describe('PhysicsWorld + bitECS + IslandEnvironment + PlayerController + Pooled 
 
     const groundY = collider.position.y;
     stepFrames(ctx, 1, { ...IDLE_INPUT, jumpPressed: true });
+    expect(ctx.player.getSquashY()).toBeGreaterThan(1.05);
     stepFrames(ctx, 8, IDLE_INPUT);
     expect(collider.position.y).toBeGreaterThan(groundY + 0.4);
+    expect(ctx.player.getSquashY()).toBeLessThan(1.1);
 
     for (let i = 0; i < PLAYER_MAX_PEBBLES + 3; i++) {
       stepFrames(ctx, 1, { ...IDLE_INPUT, tossPressed: true });

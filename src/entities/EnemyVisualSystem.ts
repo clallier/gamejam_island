@@ -13,12 +13,18 @@ interface TracerBeam {
   remaining: number;
 }
 
+interface EnemyVisualEntry {
+  readonly model: AssembledModel;
+  spawnAge: number;
+}
+
 /**
  * Reactively spawns and disposes modular 3D enemy assemblies via bitECS
  * `observeAdded`/`observeRemoved([Enemy])` and renders brief turret tracer beams.
  */
 export class EnemyVisualSystem {
   private static readonly TRACER_LIFE = 0.14;
+  private static readonly POP_DURATION = 0.22;
 
   private readonly scene: Scene;
   private readonly ecs: IslandEcsWorld;
@@ -26,7 +32,7 @@ export class EnemyVisualSystem {
   private readonly blueprints: BlueprintRegistry;
   private readonly materials: StylizedMaterialFactory;
   private readonly lighting: DayNightRig;
-  private readonly visualsByEid = new Map<number, AssembledModel>();
+  private readonly visualsByEid = new Map<number, EnemyVisualEntry>();
   private readonly tracers: TracerBeam[] = [];
   private readonly unsubAdd: () => void;
   private readonly unsubRemove: () => void;
@@ -75,10 +81,13 @@ export class EnemyVisualSystem {
    */
   public update(elapsedSeconds: number, dt: number): void {
     const { Position, Enemy } = this.ecs.getComponents();
-    for (const [eid, model] of this.visualsByEid) {
+    for (const [eid, entry] of this.visualsByEid) {
+      entry.spawnAge = Math.min(EnemyVisualSystem.POP_DURATION, entry.spawnAge + Math.max(0, dt));
+      const pop = 0.45 + 0.55 * (entry.spawnAge / EnemyVisualSystem.POP_DURATION);
       const bob = Math.abs(Math.sin(elapsedSeconds * 7 + eid)) * 0.1;
-      model.root.position.set(Position.x[eid] ?? 0, bob, Position.z[eid] ?? 0);
-      model.root.rotation.y = (Enemy.side[eid] ?? -1) < 0 ? 0 : Math.PI;
+      entry.model.root.scaling.setAll(pop);
+      entry.model.root.position.set(Position.x[eid] ?? 0, bob, Position.z[eid] ?? 0);
+      entry.model.root.rotation.y = (Enemy.side[eid] ?? -1) < 0 ? 0 : Math.PI;
     }
     this._stepTracers(dt);
   }
@@ -126,7 +135,7 @@ export class EnemyVisualSystem {
   public dispose(): void {
     this.unsubAdd();
     this.unsubRemove();
-    for (const model of this.visualsByEid.values()) model.root.dispose(false, false);
+    for (const entry of this.visualsByEid.values()) entry.model.root.dispose(false, false);
     this.visualsByEid.clear();
     while (this.tracers.length > 0) this.tracers.pop()?.mesh.dispose();
   }
@@ -137,14 +146,15 @@ export class EnemyVisualSystem {
     const kind = Enemy.kind[eid] === ENEMY_KIND.GLOOM_BRUTE ? 'enemy_gloom_brute' : 'enemy_gloom_sprite';
     const model = this.assembly.assemble(this.blueprints.getPropBlueprint(kind), `enemy-${eid}`);
     model.root.position.set(Position.x[eid] ?? 0, 0, Position.z[eid] ?? 0);
+    model.root.scaling.setAll(0.45);
     this.lighting.addShadowCasters(model.getMeshes());
-    this.visualsByEid.set(eid, model);
+    this.visualsByEid.set(eid, { model, spawnAge: 0 });
   }
 
   private _onEnemyRemoved(eid: number): void {
-    const model = this.visualsByEid.get(eid);
-    if (!model) return;
-    model.root.dispose(false, false);
+    const entry = this.visualsByEid.get(eid);
+    if (!entry) return;
+    entry.model.root.dispose(false, false);
     this.visualsByEid.delete(eid);
   }
 
