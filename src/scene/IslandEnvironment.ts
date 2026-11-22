@@ -8,14 +8,15 @@ import type { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import { BlueprintRegistry } from '../assets/BlueprintRegistry.ts';
-import type { ModularAssemblyFactory } from '../assets/ModularAssemblyFactory.ts';
+import type { PaletteKey, PartId } from '../assets/constants.ts';
+import type { AssembledModel, ModularAssemblyFactory } from '../assets/ModularAssemblyFactory.ts';
 import type { StylizedMaterialFactory } from '../assets/StylizedMaterialFactory.ts';
 import type { DayNightRig } from '../engine/DayNightRig.ts';
 import type { PhysicsWorld } from '../engine/PhysicsWorld.ts';
 import type { IslandEcsWorld } from '../ecs/IslandEcsWorld.ts';
 import { NpcStandee } from '../entities/NpcStandee.ts';
 import type { PlantedFlora } from '../systems/PlantingSystem.ts';
-import { PORTAL_X } from '../world/constants.ts';
+import { type NpcRoleId, PORTAL_X } from '../world/constants.ts';
 import type { CorruptionField } from '../world/CorruptionField.ts';
 import type { IslandStrip } from '../world/IslandStrip.ts';
 import type { ResourceNodeCatalog } from '../world/ResourceNodeCatalog.ts';
@@ -58,6 +59,8 @@ export class IslandEnvironment {
   private readonly lighting: DayNightRig;
   private readonly ecs: IslandEcsWorld;
   private readonly npcStandees: NpcStandee[] = [];
+  private readonly npcByRole = new Map<NpcRoleId, NpcStandee>();
+  private readonly dollhouseModels = new Map<NpcRoleId, AssembledModel>();
   private readonly lilyPads: Mesh[] = [];
   private readonly roadCrates: Mesh[] = [];
   private readonly nodeEntries = new Map<string, NodeVisualEntry>();
@@ -221,6 +224,37 @@ export class IslandEnvironment {
     this.ecs.triggerWobble(flora.id, IslandEnvironment.WOBBLE_DURATION);
   }
 
+  /**
+   * Installs a modular furniture piece inside the target dollhouse's `interior_left` socket.
+   *
+   * @param roleId Owning villager role.
+   * @param partId Furniture `PartId`.
+   * @param paletteKey Stylized material palette key.
+   * @throws Error Never thrown; ignores unknown roles gracefully.
+   * @example
+   * env.furnishDollhouse('engineer', 'furniture_tool_chest', 'woodWarm');
+   */
+  public furnishDollhouse(roleId: NpcRoleId, partId: PartId, paletteKey: PaletteKey): void {
+    const house = this.dollhouseModels.get(roleId);
+    if (!house) return;
+    const partNode = house.swapPart('interior_left', partId, paletteKey, { position: [0.95, 0.25, 0.25] });
+    this.lighting.addShadowCasters(partNode.getChildMeshes(false));
+    this.ecs.triggerWobble(`house-${roleId}`, IslandEnvironment.WOBBLE_DURATION);
+    this.celebrateNpc(roleId);
+  }
+
+  /**
+   * Triggers a celebratory hop animation on the specified villager standee.
+   *
+   * @param roleId Villager role identifier.
+   * @throws Error Never thrown.
+   * @example
+   * env.celebrateNpc('medic');
+   */
+  public celebrateNpc(roleId: NpcRoleId): void {
+    this.npcByRole.get(roleId)?.triggerCelebrate();
+  }
+
   private _buildTerrainAndWater(): void {
     const soil = MeshBuilder.CreateBox('island-soil', {
       width: TERRAIN_WIDTH,
@@ -288,10 +322,13 @@ export class IslandEnvironment {
       const house = this.assembly.assemble(this.blueprints.getDollhouseBlueprint(plot.roleId), `house-${plot.roleId}`);
       house.root.position.set(plot.x, 0, DOLLHOUSE_Z);
       this.lighting.addShadowCasters(house.getMeshes());
+      this.dollhouseModels.set(plot.roleId, house);
       this._addRoomLight(plot.roleId, plot.x);
       const npcModel = this.assembly.assemble(this.blueprints.getNpcBlueprint(plot.roleId), `npc-${plot.roleId}`);
       this.lighting.addShadowCasters(npcModel.getMeshes());
-      this.npcStandees.push(new NpcStandee(plot, npcModel, index));
+      const standee = new NpcStandee(plot, npcModel, index);
+      this.npcStandees.push(standee);
+      this.npcByRole.set(plot.roleId, standee);
     });
   }
 
@@ -384,7 +421,7 @@ export class IslandEnvironment {
   private _updateWobbles(deltaSeconds: number): void {
     this.ecs.tickWobbles(deltaSeconds, (id, remaining) => {
       if (remaining <= 0) return;
-      const root = this.nodeEntries.get(id)?.root ?? this.moundEntries.get(id);
+      const root = this._findWobbleRoot(id);
       if (!root) return;
       root.rotation.z = Math.sin(remaining * 45) * 0.14;
     });
@@ -393,8 +430,14 @@ export class IslandEnvironment {
   private _resetWobble(eid: number): void {
     const id = this.ecs.getStringId(eid);
     if (!id) return;
-    const root = this.nodeEntries.get(id)?.root ?? this.moundEntries.get(id);
+    const root = this._findWobbleRoot(id);
     if (root) root.rotation.z = 0;
+  }
+
+  private _findWobbleRoot(id: string): TransformNode | undefined {
+    const direct = this.nodeEntries.get(id)?.root ?? this.moundEntries.get(id);
+    if (direct || !id.startsWith('house-')) return direct;
+    return this.dollhouseModels.get(id.slice(6) as NpcRoleId)?.root;
   }
 
   private _animateLilyPads(elapsedSeconds: number): void {

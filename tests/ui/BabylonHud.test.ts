@@ -141,4 +141,45 @@ describe('BabylonHud (@babylonjs/gui)', () => {
     expect(snap.tossPressed).toBe(true);
     expect(snap.plantPressed).toBe(true);
   });
+
+  it('renders live bond metadata and triggers hang-out, gift, and furnish callbacks on dollhouse card', () => {
+    const { hud, input } = createHudHarness();
+    const engineerPlot = DOLLHOUSE_PLOTS[0]!;
+    const onHangOut = vi.fn();
+    const onGift = vi.fn();
+    const onFurnish = vi.fn();
+    hud.bindControls(input, vi.fn(), vi.fn(), { onHangOut, onGift, onFurnish });
+
+    hud.updateInteractionContext(
+      { type: 'dollhouse', plot: engineerPlot, icon: '🏠', label: engineerPlot.npcName },
+      engineerPlot,
+      false,
+      {
+        roleId: 'engineer',
+        level: 2,
+        xp: 40,
+        xpText: '40/80 XP',
+        furnitureStage: 1,
+        hangoutLabel: 'Tinker',
+        giftLabel: 'Gift 🪵2',
+        canGift: true,
+        furnishLabel: 'Decorate (2/2)',
+        canFurnish: false,
+        isFurnishMaxed: false,
+        activePerkLabel: '✓ Lv2: +1 Harvest Drop · Next Lv3: +1 Harvest & +25% Turrets',
+      },
+    );
+
+    expect((hud.getControlByName('card-npc-meta') as TextBlock).text).toContain('♥ Lv 2 (40/80 XP)');
+    expect((hud.getControlByName('btn-card-hangout-label') as TextBlock).text).toBe('Tinker');
+    expect((hud.getControlByName('btn-card-furnish') as Button).isEnabled).toBe(false);
+
+    (hud.getControlByName('btn-card-hangout') as Button).onPointerClickObservable.notifyObservers(null as never);
+    (hud.getControlByName('btn-card-gift') as Button).onPointerClickObservable.notifyObservers(null as never);
+    (hud.getControlByName('btn-card-furnish') as Button).onPointerClickObservable.notifyObservers(null as never);
+
+    expect(onHangOut).toHaveBeenCalledTimes(1);
+    expect(onGift).toHaveBeenCalledTimes(1);
+    expect(onFurnish).toHaveBeenCalledTimes(1);
+  });
 });

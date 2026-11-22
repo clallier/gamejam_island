@@ -172,11 +172,16 @@ describe('PhysicsWorld + bitECS + IslandEnvironment + PlayerController + Pooled 
 
     const petalsBefore = ctx.inventory.getAmount('petals');
     const rightBorderBefore = ctx.corruption.getRightBorderX();
-    const bloom = ctx.planting.plantAt(24, ctx.inventory, ctx.corruption);
+    const bloom = ctx.planting.plantAt(24, ctx.inventory, ctx.corruption, 1.5);
     expect(bloom).not.toBeNull();
     ctx.env.spawnPlantedFlora(bloom!);
     expect(ctx.inventory.getAmount('petals')).toBe(petalsBefore - 2);
     expect(ctx.corruption.getRightBorderX()).toBeGreaterThan(rightBorderBefore);
     expect(ctx.scene.getTransformNodeByName(bloom!.id)).not.toBeNull();
+
+    // Cutaway room furnishing + villager celebration hop
+    ctx.env.furnishDollhouse('engineer', 'furniture_tool_chest', 'woodWarm');
+    expect(ctx.scene.getMeshByName('house-engineer-interior_left-chest')).not.toBeNull();
+    stepFrames(ctx, 10, IDLE_INPUT);
   });
 });

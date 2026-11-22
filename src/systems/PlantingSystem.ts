@@ -63,14 +63,17 @@ export class PlantingSystem {
    * @param x World X coordinate where the bloom is planted.
    * @param inventory Live `InventoryStore`.
    * @param corruption Live `CorruptionField` to push outward.
+   * @param borderPushMultiplier Multiplier applied by Medic bond perks (defaults to `1`).
    * @returns Created `PlantedFlora` descriptor, or `null` when blocked.
+   * @throws Error Never thrown during planting checks.
    * @example
-   * const bloom = planting.plantAt(25, inventory, corruption);
+   * const bloom = planting.plantAt(25, inventory, corruption, 1.5);
    */
   public plantAt(
     x: number,
     inventory: InventoryStore,
     corruption: CorruptionField,
+    borderPushMultiplier = 1,
   ): PlantedFlora | null {
     if (!this.canPlantAt(x, inventory) || !inventory.spend(PLANT_COST)) {
       return null;
@@ -78,7 +81,7 @@ export class PlantingSystem {
     const side: IslandSide = x < 0 ? 'left' : 'right';
     const flora: PlantedFlora = { id: `bloom-${this.nextId++}`, side, x, z: PLANT_Z };
     this.planted.push(flora);
-    corruption.pushBorder(side, PLANT_BORDER_PUSH);
+    corruption.pushBorder(side, PLANT_BORDER_PUSH * borderPushMultiplier);
     return flora;
   }
 

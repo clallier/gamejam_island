@@ -1,7 +1,11 @@
 import {
   addComponent,
   addEntity,
+  addPrefab,
+  createRelation,
   createWorld,
+  getRelationTargets,
+  IsA,
   observe,
   onAdd,
   onRemove,
@@ -12,12 +16,13 @@ import {
   removeEntity,
   type World,
 } from 'bitecs';
-import type { ResourceKey } from '../world/constants.ts';
+import type { NpcRoleId, ResourceKey } from '../world/constants.ts';
 import {
   INTERACTABLE_KIND,
   INTERACTABLE_PRIORITY,
   LOOT_STATE,
   MAX_ENTITIES,
+  NPC_ROLE_TO_CODE,
   RESOURCE_TO_CODE,
 } from './constants.ts';
 
@@ -42,6 +47,13 @@ export interface IslandEcsComponents {
   readonly Wobble: {
     readonly remaining: Float32Array;
   };
+  readonly NpcBond: {
+    readonly roleCode: Uint8Array;
+    readonly level: Uint8Array;
+    readonly xp: Uint16Array;
+    readonly furnitureStage: Uint8Array;
+    readonly hangoutCount: Uint16Array;
+  };
 }
 
 /**
@@ -51,6 +63,8 @@ export interface IslandEcsComponents {
 export class IslandEcsWorld {
   private readonly components: IslandEcsComponents;
   private readonly world: World<{ components: IslandEcsComponents }>;
+  private readonly npcPrefab: number;
+  private readonly housedIn = createRelation();
   private readonly idToEid = new Map<string, number>();
   private readonly eidToId = new Map<number, string>();
   private readonly finishedWobbles: number[] = [];
@@ -64,6 +78,7 @@ export class IslandEcsWorld {
   public constructor() {
     this.components = this._createComponents();
     this.world = createWorld({ components: this.components });
+    this.npcPrefab = addPrefab(this.world);
   }
 
   /**
@@ -322,6 +337,57 @@ export class IslandEcsWorld {
     return this.eidToId.get(eid);
   }
 
+  /**
+   * Registers a villager entity using `IsA(npcPrefab)`, `NpcBond` SoA buffers, and `HousedIn`.
+   *
+   * @param roleId Villager role identifier (`'engineer' | 'medic' | 'defender' | 'merchant'`).
+   * @param houseStringId Registered string ID of the villager's dollhouse.
+   * @param x World X coordinate along the town strip.
+   * @returns Allocated bitECS numeric entity ID.
+   * @throws Error Never thrown for valid role and coordinates.
+   * @example
+   * const npcEid = ecs.registerVillager('engineer', 'house-engineer', -13);
+   */
+  public registerVillager(roleId: NpcRoleId, houseStringId: string, x: number): number {
+    const eid = this._createNamedEntity(`npc-${roleId}`, x, 0, 1.6);
+    const { NpcBond } = this.components;
+    NpcBond.roleCode[eid] = NPC_ROLE_TO_CODE[roleId];
+    NpcBond.level[eid] = 1;
+    NpcBond.xp[eid] = 0;
+    NpcBond.furnitureStage[eid] = 0;
+    NpcBond.hangoutCount[eid] = 0;
+    addComponent(this.world, eid, NpcBond);
+    addComponent(this.world, eid, IsA(this.npcPrefab));
+    const houseEid = this.idToEid.get(houseStringId);
+    if (houseEid !== undefined) addComponent(this.world, eid, this.housedIn(houseEid));
+    return eid;
+  }
+
+  /**
+   * Queries all villager entities inheriting from `npcPrefab` via `IsA`.
+   *
+   * @returns Packed bitECS query result of villager entity IDs.
+   * @throws Error Never thrown during queries.
+   * @example
+   * const villagerEids = ecs.queryVillagers();
+   */
+  public queryVillagers(): QueryResult {
+    return query(this.world, [IsA(this.npcPrefab)]);
+  }
+
+  /**
+   * Resolves the linked dollhouse entity ID from a villager's `HousedIn` relation.
+   *
+   * @param npcEid Numeric bitECS entity ID of the villager.
+   * @returns Linked dollhouse `eid`, or `undefined` if none is attached.
+   * @throws Error Never thrown during relation lookup.
+   * @example
+   * const houseEid = ecs.getVillagerHouseEid(npcEid);
+   */
+  public getVillagerHouseEid(npcEid: number): number | undefined {
+    return getRelationTargets(this.world, npcEid, this.housedIn)[0];
+  }
+
   private _createComponents(): IslandEcsComponents {
     return {
       Position: {
@@ -343,6 +409,13 @@ export class IslandEcsWorld {
       },
       Wobble: {
         remaining: new Float32Array(MAX_ENTITIES),
+      },
+      NpcBond: {
+        roleCode: new Uint8Array(MAX_ENTITIES),
+        level: new Uint8Array(MAX_ENTITIES),
+        xp: new Uint16Array(MAX_ENTITIES),
+        furnitureStage: new Uint8Array(MAX_ENTITIES),
+        hangoutCount: new Uint16Array(MAX_ENTITIES),
       },
     };
   }

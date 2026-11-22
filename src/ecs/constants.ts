@@ -3,7 +3,7 @@
  * for the bitECS simulation world.
  */
 
-import type { ResourceKey, ResourceNodeKind } from '../world/constants.ts';
+import type { NpcRoleId, ResourceKey, ResourceNodeKind } from '../world/constants.ts';
 
 export const MAX_ENTITIES = 2048;
 
@@ -51,4 +51,18 @@ export const CODE_TO_NODE_KIND: readonly ResourceNodeKind[] = [
   'tree_broadleaf',
   'boulder',
   'wildflower',
+];
+
+export const NPC_ROLE_TO_CODE: Record<NpcRoleId, number> = {
+  engineer: 0,
+  medic: 1,
+  defender: 2,
+  merchant: 3,
+};
+
+export const CODE_TO_NPC_ROLE: readonly NpcRoleId[] = [
+  'engineer',
+  'medic',
+  'defender',
+  'merchant',
 ];

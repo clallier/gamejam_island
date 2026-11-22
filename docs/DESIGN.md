@@ -56,8 +56,8 @@ Hanging out with a villager smoothly zooms the 3/4 camera into their open-front 
 ---
 
 ## 5. Milestones Roadmap
-1. **Milestone 1 (Current):** 1D diorama island, Havok player capsule & bouncing road props, modular hero + 4 NPCs + 4 cutaway dollhouses, adaptive 3/4 camera with dollhouse zoom, Day/Night lighting + neon bloom preview, mobile-portrait HUD.
-2. **Milestone 2:** Gathering from trees/rocks, bouncing physics resource pickups, planting flora to dynamically push corruption borders, scrubbing pollution mounds.
-3. **Milestone 3:** Full NPC Hang-out mini-beats, Bond leveling, active perk unlocks, live cutaway room furnishing.
-4. **Milestone 4:** Nighttime enemy wave director, placeable modular turrets/barricades, active player slingshot/mallet combat, Defender AI ally, dawn/game-over loop.
+1. **Milestone 1 (Done):** 1D diorama island, Havok player capsule & bouncing road props, modular hero + 4 NPCs + 4 cutaway dollhouses, adaptive 3/4 camera with dollhouse zoom, Day/Night lighting + neon bloom preview, mobile-portrait HUD.
+2. **Milestone 2 (Done):** Gathering from trees/rocks/wildflowers, bouncing pooled Havok pickups, planting flora to dynamically push corruption borders, scrubbing pollution mounds, reactive bitECS `observe` & zero-allocation `pipe` pipeline.
+3. **Milestone 3 (Current):** bitECS `addPrefab` (`IsA`) & `createRelation` (`HousedIn`) villager model, Hang-out beats, affinity gifting, Bond leveling (`Lv 1–3`), active town-wide perks, and live cutaway dollhouse room furnishing.
+4. **Milestone 4 (Next):** Nighttime enemy wave director, placeable modular turrets/barricades, active player slingshot/mallet combat, Defender AI ally, dawn/game-over loop.
 5. **Milestone 5:** Squash-and-stretch juice, Web Audio chimes & drums, difficulty tuning, `.glb` asset swap pass.

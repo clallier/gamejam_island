@@ -86,6 +86,14 @@ export class ProceduralPartProvider implements IMeshPartProvider {
       furniture_planter: (r, p, k) => this._buildPlanter(r, p, k),
       furniture_rack: (r, p, k) => this._buildWeaponRack(r, p, k),
       furniture_counter: (r, p, k) => this._buildCounter(r, p, k),
+      furniture_tool_chest: (r, p, k) => this._buildToolChest(r, p, k),
+      furniture_hearth_stove: (r, p, k) => this._buildHearthStove(r, p, k),
+      furniture_herb_shelf: (r, p, k) => this._buildHerbShelf(r, p, k),
+      furniture_tea_table: (r, p, k) => this._buildTeaTable(r, p, k),
+      furniture_training_dummy: (r, p, k) => this._buildTrainingDummy(r, p, k),
+      furniture_banner_stand: (r, p, k) => this._buildBannerStand(r, p, k),
+      furniture_curio_shelf: (r, p, k) => this._buildCurioShelf(r, p, k),
+      furniture_plush_rug: (r, p, k) => this._buildPlushRug(r, p, k),
       prop_lantern: (r, p, k) => this._buildLantern(r, p, k),
       shrine_heart: (r, p, k) => this._buildShrine(r, p, k),
       tree_pine: (r, p, k) => this._buildPineTree(r, p, k),
@@ -223,6 +231,54 @@ export class ProceduralPartProvider implements IMeshPartProvider {
     this._box(r, `${p}-desk`, 1.35, 0.78, 0.66, [0, 0.39, 0], k);
     this._sphere(r, `${p}-jar`, 0.3, [-0.28, 0.94, 0], 'amberGlow');
     this._box(r, `${p}-crate`, 0.38, 0.32, 0.36, [0.3, 0.94, 0], 'merchant');
+  }
+
+  private _buildToolChest(r: TransformNode, p: string, k: PaletteKey): void {
+    this._box(r, `${p}-chest`, 0.92, 0.62, 0.54, [0, 0.31, 0], k);
+    this._box(r, `${p}-lid`, 0.96, 0.14, 0.58, [0, 0.68, 0], 'engineer');
+    this._box(r, `${p}-clasp`, 0.18, 0.14, 0.08, [0, 0.58, -0.29], 'amberGlow');
+  }
+
+  private _buildHearthStove(r: TransformNode, p: string, k: PaletteKey): void {
+    this._box(r, `${p}-body`, 0.88, 1.05, 0.62, [0, 0.52, 0], 'stoneWarm');
+    this._cyl(r, `${p}-flue`, 0.9, 0.24, 0.28, [0, 1.45, 0.05], 'woodDark');
+    this._sphere(r, `${p}-ember`, 0.36, [0, 0.42, -0.26], k);
+  }
+
+  private _buildHerbShelf(r: TransformNode, p: string, k: PaletteKey): void {
+    this._box(r, `${p}-frame`, 0.92, 1.25, 0.32, [0, 0.62, 0], 'woodWarm');
+    this._sphere(r, `${p}-pot-a`, 0.34, [-0.2, 0.65, -0.05], k);
+    this._sphere(r, `${p}-pot-b`, 0.32, [0.22, 1.15, -0.05], 'amberGlow');
+  }
+
+  private _buildTeaTable(r: TransformNode, p: string, k: PaletteKey): void {
+    this._cyl(r, `${p}-top`, 0.1, 0.92, 0.92, [0, 0.56, 0], k);
+    this._cyl(r, `${p}-leg`, 0.52, 0.18, 0.26, [0, 0.26, 0], 'woodDark');
+    this._sphere(r, `${p}-kettle`, 0.32, [0, 0.72, 0], 'medic');
+  }
+
+  private _buildTrainingDummy(r: TransformNode, p: string, k: PaletteKey): void {
+    this._cyl(r, `${p}-post`, 1.15, 0.14, 0.18, [0, 0.58, 0], 'woodDark');
+    this._box(r, `${p}-torso`, 0.48, 0.65, 0.38, [0, 0.92, 0], k);
+    this._sphere(r, `${p}-head`, 0.34, [0, 1.4, 0], 'clayCream');
+  }
+
+  private _buildBannerStand(r: TransformNode, p: string, k: PaletteKey): void {
+    this._cyl(r, `${p}-pole`, 1.75, 0.08, 0.1, [0, 0.88, 0], 'woodWarm');
+    this._box(r, `${p}-cloth`, 0.68, 0.95, 0.06, [0, 1.25, -0.06], k);
+    this._box(r, `${p}-crest`, 0.28, 0.28, 0.08, [0, 1.28, -0.08], 'amberGlow');
+  }
+
+  private _buildCurioShelf(r: TransformNode, p: string, k: PaletteKey): void {
+    this._box(r, `${p}-case`, 0.95, 1.22, 0.34, [0, 0.61, 0], 'woodWarm');
+    this._sphere(r, `${p}-orb`, 0.32, [-0.22, 0.75, -0.08], 'corruptionNeon');
+    this._box(r, `${p}-box`, 0.32, 0.28, 0.26, [0.22, 1.12, -0.06], k);
+  }
+
+  private _buildPlushRug(r: TransformNode, p: string, k: PaletteKey): void {
+    this._cyl(r, `${p}-mat`, 0.06, 1.28, 1.28, [0, 0.03, -0.1], 'merchant');
+    this._sphere(r, `${p}-pillow-a`, 0.36, [-0.34, 0.2, -0.1], k);
+    this._sphere(r, `${p}-pillow-b`, 0.32, [0.32, 0.18, -0.18], 'clayCream');
   }
 
   private _buildLantern(r: TransformNode, p: string, k: PaletteKey): void {

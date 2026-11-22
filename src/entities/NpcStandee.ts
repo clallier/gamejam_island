@@ -17,6 +17,7 @@ export class NpcStandee {
   private readonly plot: DollhousePlot;
   private readonly model: AssembledModel;
   private readonly phaseOffset: number;
+  private celebrateTimer = 0;
 
   /**
    * Positions an assembled modular NPC inside/in front of their dollhouse plot.
@@ -36,21 +37,35 @@ export class NpcStandee {
   }
 
   /**
-   * Updates idle bobbing and gently rotates to face the player when close.
+   * Updates idle bobbing, celebration hops, and gently rotates to face the player when close.
    *
    * @param elapsedSeconds Total elapsed simulation seconds.
    * @param deltaSeconds Frame delta in seconds.
    * @param playerX Current player X coordinate.
+   * @throws Error Never thrown during animation updates.
    * @example
    * standee.update(elapsed, dt, player.getX());
    */
   public update(elapsedSeconds: number, deltaSeconds: number, playerX: number): void {
     const bob = Math.sin(elapsedSeconds * NPC_BOB_SPEED + this.phaseOffset) * NPC_BOB_AMPLITUDE;
-    this.model.root.position.y = NpcStandee.BASE_Y + bob;
+    if (this.celebrateTimer > 0) this.celebrateTimer = Math.max(0, this.celebrateTimer - deltaSeconds);
+    const hop = this.celebrateTimer > 0 ? Math.abs(Math.sin(this.celebrateTimer * Math.PI * 3)) * 0.35 : 0;
+    this.model.root.position.y = NpcStandee.BASE_Y + bob + hop;
     const dx = playerX - this.model.root.position.x;
     const targetYaw = Math.abs(dx) <= NPC_LOOK_DISTANCE ? Math.atan2(dx, -1.6) : Math.PI;
     const alpha = 1 - Math.exp(-6 * Math.max(0, deltaSeconds));
     this.model.root.rotation.y = this._lerpAngle(this.model.root.rotation.y, targetYaw, alpha);
+  }
+
+  /**
+   * Triggers a brief joyful double-hop animation during hang-outs or room decorating.
+   *
+   * @throws Error Never thrown.
+   * @example
+   * standee.triggerCelebrate();
+   */
+  public triggerCelebrate(): void {
+    this.celebrateTimer = 0.65;
   }
 
   /**

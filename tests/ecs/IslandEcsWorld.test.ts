@@ -75,4 +75,20 @@ describe('IslandEcsWorld (bitECS SoA)', () => {
     ecs.despawnEntity(secondEid);
     expect(events).toHaveLength(3);
   });
+
+  it('registers villagers with IsA(npcPrefab), NpcBond SoA fields, and HousedIn relation', () => {
+    const ecs = new IslandEcsWorld();
+    const { NpcBond } = ecs.getComponents();
+    const houseEid = ecs.registerDollhouse(0, 'house-engineer', -13, 3.2);
+    const npcEid = ecs.registerVillager('engineer', 'house-engineer', -13);
+    const secondNpcEid = ecs.registerVillager('medic', 'house-missing', -5);
+
+    expect([...ecs.queryVillagers()]).toEqual([npcEid, secondNpcEid]);
+    expect(ecs.getVillagerHouseEid(npcEid)).toBe(houseEid);
+    expect(ecs.getVillagerHouseEid(secondNpcEid)).toBeUndefined();
+    expect(NpcBond.roleCode[npcEid]).toBe(0);
+    expect(NpcBond.level[npcEid]).toBe(1);
+    expect(NpcBond.xp[npcEid]).toBe(0);
+    expect(NpcBond.furnitureStage[npcEid]).toBe(0);
+  });
 });

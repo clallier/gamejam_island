@@ -22,6 +22,7 @@ import {
 } from '../systems/constants.ts';
 import { InteractionResolver, type InteractionTarget } from '../systems/InteractionResolver.ts';
 import { type PlantBlockReason, PlantingSystem } from '../systems/PlantingSystem.ts';
+import { VillagerBondSystem } from '../systems/VillagerBondSystem.ts';
 import { BabylonHud } from '../ui/BabylonHud.ts';
 import { HUD_THEME, NEXT_PHASE_MAP } from '../ui/constants.ts';
 import type { DollhousePlot, ResourceKey } from '../world/constants.ts';
@@ -54,6 +55,7 @@ export class GameApp {
   private readonly inventory = new InventoryStore();
   private readonly resourceNodes = new ResourceNodeCatalog();
   private readonly ecs = new IslandEcsWorld();
+  private readonly bonds = new VillagerBondSystem(this.ecs);
   private readonly resolver = new InteractionResolver();
   private readonly planting = new PlantingSystem();
   private readonly input = new InputController();
@@ -150,9 +152,10 @@ export class GameApp {
   }
 
   private _registerEcsEntities(): void {
-    this.strip.getDollhousePlots().forEach((plot, idx) =>
-      this.ecs.registerDollhouse(idx, `house-${plot.roleId}`, plot.x, INTERACT_RANGE),
-    );
+    this.strip.getDollhousePlots().forEach((plot, idx) => {
+      this.ecs.registerDollhouse(idx, `house-${plot.roleId}`, plot.x, INTERACT_RANGE);
+      this.ecs.registerVillager(plot.roleId, `house-${plot.roleId}`, plot.x);
+    });
     this.resourceNodes.getAllNodes().forEach((node, idx) =>
       this.ecs.registerResourceNode(idx, node.id, node.x, node.z, INTERACT_RANGE),
     );
@@ -163,7 +166,11 @@ export class GameApp {
 
   private _bindEvents(): void {
     this.input.attachKeyboard(window);
-    this.hud.bindControls(this.input, () => this._cyclePhasePreview(), () => this._clearFocus());
+    this.hud.bindControls(this.input, () => this._cyclePhasePreview(), () => this._clearFocus(), {
+      onHangOut: () => this._handleHangOut(),
+      onGift: () => this._handleGift(),
+      onFurnish: () => this._handleFurnish(),
+    });
     window.addEventListener('resize', this._handleResize);
   }
 
@@ -196,7 +203,12 @@ export class GameApp {
     this.hud.updateStatus(
       timeSnap, this.strip.classifyZone(playerX), this.corruption.getPurityRatio(), this.inventory.getSnapshot(),
     );
-    this.hud.updateInteractionContext(target, this.focusedDollhouse, this.planting.canPlantAt(playerX, this.inventory));
+    const focusedBond = this.focusedDollhouse
+      ? this.bonds.getSnapshot(this.focusedDollhouse.roleId, this.inventory)
+      : null;
+    this.hud.updateInteractionContext(
+      target, this.focusedDollhouse, this.planting.canPlantAt(playerX, this.inventory), focusedBond,
+    );
   }
 
   private _handleActions(
@@ -233,11 +245,12 @@ export class GameApp {
     if (!outcome) return;
     if (outcome.depleted) this.ecs.setInteractableActive(id, false);
     this.environment.animateNodeHit(id, outcome.depleted);
-    this.lootDrops.spawnBurst(outcome.dropResource, outcome.dropAmount, outcome.x, outcome.z, this.inventory);
+    const dropCount = outcome.dropAmount + this.bonds.getHarvestBonus();
+    this.lootDrops.spawnBurst(outcome.dropResource, dropCount, outcome.x, outcome.z, this.inventory);
   }
 
   private _scrubMound(id: string): void {
-    const outcome = this.corruption.hitMound(id, 1, MOUND_BORDER_PUSH);
+    const outcome = this.corruption.hitMound(id, this.bonds.getMoundHitDamage(), MOUND_BORDER_PUSH);
     if (!outcome) return;
     if (outcome.scrubbed) this.ecs.setInteractableActive(id, false);
     this.environment.animateMoundHit(id, outcome.scrubbed);
@@ -245,19 +258,60 @@ export class GameApp {
       this.hud.showToast('Scrubbing Corruption…', HUD_THEME.accentNeon);
       return;
     }
-    this.lootDrops.spawnBurst('shards', MOUND_SHARD_DROP, outcome.x, 2.2, this.inventory);
+    const shards = MOUND_SHARD_DROP + this.bonds.getMoundShardBonus();
+    this.lootDrops.spawnBurst('shards', shards, outcome.x, 2.2, this.inventory);
     this.lootDrops.spawnBurst('petals', MOUND_PETAL_DROP, outcome.x, 2.2, this.inventory);
     this.hud.showToast('Corruption Scrubbed! Border Pushed', HUD_THEME.accentSage);
   }
 
   private _handlePlant(playerX: number): void {
-    const flora = this.planting.plantAt(playerX, this.inventory, this.corruption);
+    const flora = this.planting.plantAt(playerX, this.inventory, this.corruption, this.bonds.getPlantPushMultiplier());
     if (flora) {
       this.environment.spawnPlantedFlora(flora);
       this.hud.showToast('Purifying Bloom Planted!', HUD_THEME.accentSage);
       return;
     }
     this._showPlantBlockReason(this.planting.getPlantBlockReason(playerX, this.inventory));
+  }
+
+  private _handleHangOut(): void {
+    const plot = this.focusedDollhouse;
+    if (!plot) return;
+    const outcome = this.bonds.hangOut(plot.roleId, this.inventory);
+    if (!outcome) return;
+    this.environment.celebrateNpc(plot.roleId);
+    const petalNote = outcome.bonusPetal > 0 ? ' · +1 🌸' : '';
+    const msg = outcome.leveledUp
+      ? `${plot.npcName} Bond Lv ${outcome.newLevel} Unlocked!`
+      : `${plot.npcName} +${outcome.xpGained} XP${petalNote}`;
+    this.hud.showToast(msg, outcome.leveledUp ? HUD_THEME.accentAmber : HUD_THEME.accentSage);
+  }
+
+  private _handleGift(): void {
+    const plot = this.focusedDollhouse;
+    if (!plot) return;
+    const outcome = this.bonds.giveGift(plot.roleId, this.inventory);
+    if (!outcome) {
+      this.hud.showToast(`Need ${plot.affinityLabel}`, HUD_THEME.accentAmber);
+      return;
+    }
+    this.environment.celebrateNpc(plot.roleId);
+    const msg = outcome.leveledUp
+      ? `${plot.npcName} Bond Lv ${outcome.newLevel} Unlocked!`
+      : `Gifted ${plot.npcName} (+${outcome.xpGained} XP)`;
+    this.hud.showToast(msg, HUD_THEME.accentAmber);
+  }
+
+  private _handleFurnish(): void {
+    const plot = this.focusedDollhouse;
+    if (!plot) return;
+    const outcome = this.bonds.furnishRoom(plot.roleId, this.inventory);
+    if (!outcome) return;
+    this.environment.furnishDollhouse(plot.roleId, outcome.partId, outcome.paletteKey);
+    const msg = outcome.leveledUp
+      ? `${outcome.label} Built · Bond Lv ${outcome.newLevel}!`
+      : `Placed ${outcome.label} in ${plot.roomTitle}`;
+    this.hud.showToast(msg, HUD_THEME.accentSage);
   }
 
   private _showPlantBlockReason(reason: PlantBlockReason): void {
@@ -281,12 +335,15 @@ export class GameApp {
     if (dayNumber <= this.lastDayNumber) return;
     this.lastDayNumber = dayNumber;
     const count = this.resourceNodes.regrowAll();
+    const dawnPetals = this.bonds.getDawnPetalBonus();
+    if (dawnPetals > 0) this.inventory.add('petals', dawnPetals);
     if (count > 0) {
       for (const node of this.resourceNodes.getAllNodes()) {
         this.ecs.setInteractableActive(node.id, true);
       }
       this.environment.syncRegrowth(this.resourceNodes);
-      this.hud.showToast('Dawn — Frontier Regrew!', HUD_THEME.accentSage);
+      const giftNote = dawnPetals > 0 ? ` (+${dawnPetals} 🌸)` : '';
+      this.hud.showToast(`Dawn — Frontier Regrew!${giftNote}`, HUD_THEME.accentSage);
     }
   }
 

@@ -5,9 +5,10 @@ import type { Control } from '@babylonjs/gui/2D/controls/control.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { InputController } from '../engine/InputController.ts';
 import type { InteractionTarget } from '../systems/InteractionResolver.ts';
+import type { VillagerBondSnapshot } from '../systems/VillagerBondSystem.ts';
 import type { DollhousePlot, IslandZone, ResourceKey } from '../world/constants.ts';
 import type { TimeSnapshot } from '../world/TimeCycle.ts';
-import { DollhouseCardView } from './DollhouseCardView.ts';
+import { type DollhouseCardCallbacks, DollhouseCardView } from './DollhouseCardView.ts';
 import { HudLayout } from './HudLayout.ts';
 import { TopBarView } from './TopBarView.ts';
 import { TouchDockView } from './TouchDockView.ts';
@@ -47,17 +48,20 @@ export class BabylonHud {
    * @param input Shared `InputController` driven by dock buttons.
    * @param onCyclePhase Callback fired when `Preview Phase` is clicked.
    * @param onCloseCard Callback fired when the dollhouse card close button is clicked.
+   * @param cardActions Optional handlers for dollhouse Hang-out, Gift, and Furnish buttons.
+   * @throws Error Never thrown.
    * @example
-   * hud.bindControls(input, () => cycleNextPhase(), () => clearFocus());
+   * hud.bindControls(input, () => cycleNextPhase(), () => clearFocus(), { onHangOut });
    */
   public bindControls(
     input: InputController,
     onCyclePhase: () => void,
     onCloseCard: () => void,
+    cardActions?: Omit<DollhouseCardCallbacks, 'onClose'>,
   ): void {
     this.dock.bindInput(input);
     this.topBar.setOnCyclePhase(onCyclePhase);
-    this.card.setOnClose(onCloseCard);
+    this.card.setCallbacks({ onClose: onCloseCard, ...cardActions });
   }
 
   /**
@@ -103,16 +107,19 @@ export class BabylonHud {
    * @param target Nearest resolved `InteractionTarget` or `null`.
    * @param focusedPlot Currently zoomed `DollhousePlot`, or `null`.
    * @param canPlant Whether a purifying flower can currently be planted.
+   * @param focusedBond Optional live `VillagerBondSnapshot` for the focused plot.
+   * @throws Error Never thrown.
    * @example
-   * hud.updateInteractionContext(target, focused, true);
+   * hud.updateInteractionContext(target, focused, true, focusedBond);
    */
   public updateInteractionContext(
     target: InteractionTarget | null,
     focusedPlot: DollhousePlot | null,
     canPlant: boolean,
+    focusedBond: VillagerBondSnapshot | null = null,
   ): void {
     this.dock.updateInteractionContext(target, focusedPlot, canPlant);
-    this.card.renderPlot(focusedPlot);
+    this.card.renderPlot(focusedPlot, focusedBond);
   }
 
   /**
