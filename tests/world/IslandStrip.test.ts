@@ -24,7 +24,7 @@ describe('IslandStrip', () => {
     expect(strip.findNearestDollhouse(0)).toBeNull();
     expect(strip.getDollhousePlots()).toHaveLength(4);
     expect(strip.getDefenseSlots()).toHaveLength(4);
-    expect(strip.findNearestDollhouse(-12.1, 0.5)).toBeNull();
+    expect(strip.findNearestDollhouse(-11.8, 0.5)).toBeNull();
     expect(() => new IslandStrip(0)).toThrow(RangeError);
     expect(() => new IslandStrip(-5)).toThrow(RangeError);
   });

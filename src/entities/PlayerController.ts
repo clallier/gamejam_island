@@ -6,6 +6,7 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
 import type { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
 import type { Scene } from '@babylonjs/core/scene.js';
+import { type BalanceSheet, defaultBalanceSheet } from '../config/BalanceSheet.ts';
 import type { AssembledModel } from '../assets/ModularAssemblyFactory.ts';
 import type { StylizedMaterialFactory } from '../assets/StylizedMaterialFactory.ts';
 import {
@@ -21,7 +22,6 @@ import {
   PLAYER_COYOTE_SECONDS,
   PLAYER_JUMP_IMPULSE,
   PLAYER_MAX_PEBBLES,
-  PLAYER_MOVE_SPEED,
   PLAYER_START_X,
   PLAYER_START_Y,
   PLAYER_TOSS_SPEED_X,
@@ -48,6 +48,7 @@ export class PlayerController {
   private readonly physics: PhysicsWorld;
   private readonly strip: IslandStrip;
   private readonly materials: StylizedMaterialFactory;
+  private readonly balance: BalanceSheet;
   private readonly collider: Mesh;
   private readonly aggregate: PhysicsAggregate;
   private readonly visualRoot: TransformNode;
@@ -67,6 +68,7 @@ export class PlayerController {
    * @param strip `IslandStrip` providing road bounds.
    * @param materials Shared material factory for thrown physics pebbles.
    * @param model Assembled modular hero model.
+   * @param balance Runtime `BalanceSheet` providing live grid-scaled player speed.
    * @example
    * const player = new PlayerController(scene, physics, strip, materials, heroModel);
    */
@@ -76,11 +78,13 @@ export class PlayerController {
     strip: IslandStrip,
     materials: StylizedMaterialFactory,
     model: AssembledModel,
+    balance: BalanceSheet = defaultBalanceSheet,
   ) {
     this.scene = scene;
     this.physics = physics;
     this.strip = strip;
     this.materials = materials;
+    this.balance = balance;
     this.collider = this._createColliderMesh();
     this.aggregate = this.physics.attachDynamicCapsule(this.collider, 1);
     this.visualRoot = this._attachVisualModel(model);
@@ -106,9 +110,10 @@ export class PlayerController {
     const landed = grounded && !this.wasGrounded;
     if (landed) this.squashY = 0.78;
     this.wasGrounded = grounded;
-    this._applyHorizontalVelocity(input.moveX, vel.y);
+    const moveSpeed = this.balance.getWorld('playerMoveSpeedTiles');
+    this._applyHorizontalVelocity(input.moveX, vel.y, moveSpeed);
     if (input.tossPressed) this._tossPebble();
-    const walk = this.walkAnim.update(dt, Math.abs(input.moveX) * PLAYER_MOVE_SPEED, grounded);
+    const walk = this.walkAnim.update(dt, Math.abs(input.moveX) * moveSpeed, grounded);
     this._animateVisual(dt, walk.strideScaleY);
     return { stepped: walk.stepped, landed };
   }
@@ -216,8 +221,8 @@ export class PlayerController {
     return this.coyoteTimer > 0;
   }
 
-  private _applyHorizontalVelocity(moveX: number, currentVy: number): void {
-    const vx = moveX * PLAYER_MOVE_SPEED;
+  private _applyHorizontalVelocity(moveX: number, currentVy: number, moveSpeed: number): void {
+    const vx = moveX * moveSpeed;
     this.physics.setLinearVelocity(this.aggregate, new Vector3(vx, currentVy, 0));
     if (moveX !== 0) this.facing = moveX > 0 ? 1 : -1;
   }

@@ -115,6 +115,9 @@ export class InputController {
   }
 
   private _handleKeyDown(e: KeyboardEvent): void {
+    const target = e.target as HTMLElement | null;
+    const tag = target?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
     if (e.repeat) return;
     this.activeKeys.add(e.code);
     if (InputController.JUMP_KEYS.has(e.code)) this.triggerTap('jump');

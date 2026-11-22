@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import { BalanceSheet } from '../../src/config/BalanceSheet.ts';
 import { DEFENSE_KIND, ENEMY_KIND } from '../../src/ecs/constants.ts';
 import { IslandEcsWorld } from '../../src/ecs/IslandEcsWorld.ts';
 import {
   DEFENDER_ATTACK_DAMAGE,
   DEFENDER_GUARD_RADIUS,
+  DEFENDER_SPEAR_KNOCKBACK,
   ENEMY_BREACH_BORDER_PULL,
   ENEMY_BRUTE_DAMAGE,
+  ENEMY_BRUTE_SPEED,
+  ENEMY_RUSHER_SPEED,
   ENEMY_SPRITE_DAMAGE,
+  PLAYER_SHOT_KNOCKBACK,
+  ROAD_CRATE_KNOCKBACK,
   TOWN_HEART_MAX_HP,
   TURRET_BASE_DAMAGE,
   TURRET_MAX_HP,
@@ -138,11 +144,11 @@ describe('DefenseStructureSystem & WaveCombatSystem', () => {
     expect(ecs.getComponents().Enemy.hp[enemyRight]).toBeCloseTo(56 - TURRET_BASE_DAMAGE * 1.5, 4);
     ecs.despawnEntity(enemyRight);
 
-    // Weak Lv1 turret at slot 0 (x = -26) is destroyed mid-wave by a Brute
+    // Weak Lv1 turret at slot 0 is destroyed mid-wave by a Brute
     defenses.interactSlot(0, inventory);
     const slot0Eid = ecs.getEntityId('slot-0')!;
     ecs.getComponents().Defense.hp[slot0Eid] = ENEMY_BRUTE_DAMAGE;
-    const brute = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_BRUTE, -26, -1, 100, 1.9);
+    const brute = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_BRUTE, DEFENSE_SLOT_XS[0]!, -1, 100, ENEMY_BRUTE_SPEED);
     const destroyRes = combat.step(0.1, 'day', 1, 1, 0, corruption);
     expect(destroyRes.defenseDestroyed).toBe(true);
     expect(defenses.getSlotState(0).kind).toBe(DEFENSE_KIND.EMPTY);
@@ -162,13 +168,18 @@ describe('DefenseStructureSystem & WaveCombatSystem', () => {
     combat.healTownHeart(50);
     expect(combat.getHeartHp()).toBe(TOWN_HEART_MAX_HP);
 
-    // Defender night patrol & day return + bonus strike damage
+    // Defender stays engaged across night/dawn while monsters live, returning only once cleared
     const nightTarget = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 5.5, 1, 30, 0);
-    const nightFrame = combat.step(0.1, 'night', 1, 1, 6, corruption);
+    const nightFrame = combat.step(0.2, 'night', 1, 1, 6, corruption);
     expect(nightFrame.defenderPatrolX).not.toBeNull();
     expect(ecs.getComponents().Enemy.hp[nightTarget]).toBe(30 - (DEFENDER_ATTACK_DAMAGE + 6));
-    const dayFrame = combat.step(0.1, 'dawn', 2, 1, 6, corruption);
-    expect(dayFrame.defenderPatrolX).toBeNull();
+    const dawnActive = combat.step(0.05, 'dawn', 2, 1, 6, corruption);
+    expect(dawnActive.defenderPatrolX).not.toBeNull();
+    combat.step(0.2, 'dawn', 2, 1, 6, corruption);
+    expect(ecs.isEntityAlive(nightTarget)).toBe(false);
+    for (const eid of ecs.queryEnemies()) ecs.despawnEntity(eid);
+    const clearedFrame = combat.step(0.1, 'dawn', 2, 1, 6, corruption);
+    expect(clearedFrame.defenderPatrolX).toBeNull();
 
     // Negative/NaN dt does not corrupt state; game-over freezes combat & heals
     combat.step(Number.NaN, 'night', 2, Number.NaN, 0, corruption);
@@ -201,52 +212,55 @@ describe('DefenseStructureSystem & WaveCombatSystem', () => {
     const zValues = ecs.queryEnemies().map((eid) => ecs.getComponents().Position.z[eid]);
     expect(new Set(zValues).size).toBeGreaterThan(1);
 
-    // Clear and test auto-shoot knockback + hitFlash on nearby enemy
+    // Clear and test auto-shoot knockback + hitFlash on nearby enemy outside Bram's guard perimeter
     combat.reset();
-    const targetEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_RUSHER, 8, 1, 14, 4.9);
-    const autoRes = combat.step(0.05, 'day', 1, 1, 0, corruption, 0);
+    const targetEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_RUSHER, 33, 1, 14, ENEMY_RUSHER_SPEED);
+    const autoRes = combat.step(0.05, 'day', 1, 1, 0, corruption, 25);
     expect(autoRes.shots).toHaveLength(1);
-    expect(autoRes.shots[0]).toMatchObject({ fromX: 0, source: 'player' });
-    expect(autoRes.shots[0]!.toX).toBeCloseTo(9.355, 3);
+    expect(autoRes.shots[0]).toMatchObject({ fromX: 25, source: 'player' });
+    expect(autoRes.shots[0]!.toX).toBeCloseTo(33 - ENEMY_RUSHER_SPEED * 0.05 + PLAYER_SHOT_KNOCKBACK, 3);
     expect(autoRes.slain).toHaveLength(1);
     expect(autoRes.slain[0]?.eid).toBe(targetEid);
 
-    // Surviving Brute resists knockback (0.25x poise: 8 - 1.9*0.5 + 1.6*0.25 = 7.45) and gets hitFlash
-    const bruteEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_BRUTE, 8, 1, 56, 1.9);
-    combat.step(0.5, 'day', 1, 1, 0, corruption, 0);
-    expect(ecs.getComponents().Position.x[bruteEid]).toBeCloseTo(7.45, 3);
+    // Surviving Brute resists knockback (0.25x poise) and gets hitFlash
+    const bruteEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_BRUTE, 33, 1, 56, ENEMY_BRUTE_SPEED);
+    combat.step(0.5, 'day', 1, 1, 0, corruption, 25);
+    expect(ecs.getComponents().Position.x[bruteEid]).toBeCloseTo(
+      33 - ENEMY_BRUTE_SPEED * 0.5 + PLAYER_SHOT_KNOCKBACK * 0.25,
+      3,
+    );
     expect(ecs.getComponents().Enemy.hitFlash[bruteEid]).toBeGreaterThan(0);
   });
 
   it('only auto-shoots and fires directional shots at enemies in front of player facing', () => {
     const { ecs, combat, corruption } = setupCombatHarness();
-    const behindEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, -5, -1, 24, 0);
+    const behindEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 20, 1, 24, 0);
 
-    // Facing right (1): enemy at x = -5 is behind player at x = 0 -> ignored by both auto-shoot & manual shot
-    const facingRightRes = combat.step(0.05, 'day', 1, 1, 0, corruption, 0, 1);
+    // Facing right (1): enemy at x = 20 is behind player at x = 25 -> ignored by both auto-shoot & manual shot
+    const facingRightRes = combat.step(0.05, 'day', 1, 1, 0, corruption, 25, 1);
     expect(facingRightRes.shots).toEqual([]);
-    expect(combat.applyPlayerShot(0, 1)).toBeNull();
+    expect(combat.applyPlayerShot(25, 1)).toBeNull();
     expect(ecs.getComponents().Enemy.hp[behindEid]).toBe(24);
 
-    // Turning left (-1) with an enemy also behind at x = +5 -> shoots ONLY enemy ahead at x = -5
-    const rightSideEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 5, 1, 24, 0);
-    const facingLeftRes = combat.step(0.5, 'day', 1, 1, 0, corruption, 0, -1);
+    // Turning left (-1) with an enemy also behind at x = 30 -> shoots ONLY enemy ahead at x = 20
+    const rightSideEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 30, 1, 24, 0);
+    const facingLeftRes = combat.step(0.5, 'day', 1, 1, 0, corruption, 25, -1);
     expect(facingLeftRes.shots).toHaveLength(1);
-    expect(facingLeftRes.shots[0]!.toX).toBeLessThan(0);
+    expect(facingLeftRes.shots[0]!.toX).toBeLessThan(25);
     expect(ecs.getComponents().Enemy.hp[behindEid]).toBeLessThan(24);
     expect(ecs.getComponents().Enemy.hp[rightSideEid]).toBe(24);
 
-    // Turning back right (1) can manually hit enemy ahead at x = +5
-    const hitAhead = combat.applyPlayerShot(0, 1, 24);
+    // Turning back right (1) can manually hit enemy ahead at x = 30
+    const hitAhead = combat.applyPlayerShot(25, 1, 24);
     expect(hitAhead).not.toBeNull();
     expect(hitAhead?.killed).toBe(true);
     expect(ecs.isEntityAlive(rightSideEid)).toBe(false);
 
-    // Limited bow range: target beyond PLAYER_AUTOSHOOT_RANGE (9.5) at x = 11 is out of range, x = 8 is hit
-    ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 11, 1, 24, 0);
-    const outOfRange = combat.step(0.5, 'day', 1, 1, 0, corruption, 0, 1);
+    // Limited bow range: target beyond bow range (9.5) at x = 36 is out of range from player at x = 25
+    ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 36, 1, 24, 0);
+    const outOfRange = combat.step(0.5, 'day', 1, 1, 0, corruption, 25, 1);
     expect(outOfRange.shots).toEqual([]);
-    expect(combat.applyPlayerShot(0, 1)).toBeNull();
+    expect(combat.applyPlayerShot(25, 1)).toBeNull();
   });
 
   it('detects incoming threat side for auto-dodge and knocks back or slays enemies hit by rolling road crates', () => {
@@ -269,9 +283,9 @@ describe('DefenseStructureSystem & WaveCombatSystem', () => {
     ]);
     expect(slain.map((e) => e.eid)).toContain(rightRusher);
     expect(ecs.isEntityAlive(rightRusher)).toBe(false);
-    // Brute has 0.25x knockback poise while Sprite receives full 2.8 crate knockback
-    expect(ecs.getComponents().Position.x[rusherCrateTarget]!).toBeCloseTo(12.4, 2);
-    expect(ecs.getComponents().Position.x[bruteEid]!).toBeCloseTo(10.2, 2);
+    // Brute has 0.25x knockback poise while Sprite receives full ROAD_CRATE_KNOCKBACK
+    expect(ecs.getComponents().Position.x[rusherCrateTarget]!).toBeCloseTo(9.6 + ROAD_CRATE_KNOCKBACK, 2);
+    expect(ecs.getComponents().Position.x[bruteEid]!).toBeCloseTo(9.5 + ROAD_CRATE_KNOCKBACK * 0.25, 2);
     // Left sprite still alive so suppress unused var lint
     expect(ecs.isEntityAlive(leftSprite)).toBe(true);
   });
@@ -294,7 +308,7 @@ describe('DefenseStructureSystem & WaveCombatSystem', () => {
     const spearFrame = combat.step(0.1, 'night', 1, 1, 6, corruption);
     expect(spearFrame.shots.some((s) => s.source === 'defender')).toBe(true);
     expect(ecs.getComponents().Enemy.hp[nearEnemy]).toBe(40 - (DEFENDER_ATTACK_DAMAGE + 6));
-    expect(ecs.getComponents().Position.x[nearEnemy]!).toBeCloseTo(3.1, 2);
+    expect(ecs.getComponents().Position.x[nearEnemy]!).toBeCloseTo(1.5 + DEFENDER_SPEAR_KNOCKBACK, 2);
     expect(rushers.every((eid) => !ecs.isEntityAlive(eid))).toBe(true);
     expect(ecs.getComponents().Enemy.hp[behindEnemy]).toBe(24);
     expect(Math.abs(spearFrame.defenderPatrolX!)).toBeLessThanOrEqual(DEFENDER_GUARD_RADIUS);
@@ -303,5 +317,37 @@ describe('DefenseStructureSystem & WaveCombatSystem', () => {
     const followUp = combat.step(0.18, 'night', 1, 1, 6, corruption);
     expect(followUp.shots.some((s) => s.source === 'defender')).toBe(true);
     expect(ecs.isEntityAlive(nearEnemy)).toBe(false);
+
+    // Bram keeps fighting daytime stragglers and only returns home once zero enemies remain
+    combat.reset();
+    const dayEnemy = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 5.5, 1, 30, 0);
+    const dayFight = combat.step(0.1, 'day', 2, 1, 6, corruption);
+    expect(dayFight.defenderPatrolX).not.toBeNull();
+    expect(dayFight.shots.some((s) => s.source === 'defender')).toBe(true);
+    expect(ecs.getComponents().Enemy.hp[dayEnemy]).toBe(30 - (DEFENDER_ATTACK_DAMAGE + 6));
+    const dayCleared = combat.step(0.2, 'day', 2, 1, 6, corruption);
+    expect(ecs.isEntityAlive(dayEnemy)).toBe(false);
+    expect(dayCleared.defenderPatrolX).toBeNull();
+  });
+
+  it('reads live BalanceSheet values dynamically and guards NaN damage inputs', () => {
+    const ecs = new IslandEcsWorld();
+    const balance = new BalanceSheet({ bowRangeTiles: 2.0, bowDamage: 20 });
+    const combat = new WaveCombatSystem(ecs, balance);
+    const corruption = new CorruptionField();
+
+    // Target at x = 6 (2.4 tiles) is out of 2.0-tile range initially, then in range after live update
+    const eid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 6, 1, 30, 0);
+    expect(combat.applyPlayerShot(0, 1)).toBeNull();
+    balance.set('bowRangeTiles', 3.0);
+    const hit = combat.applyPlayerShot(0, 1);
+    expect(hit).not.toBeNull();
+    expect(ecs.getComponents().Enemy.hp[eid]).toBe(10);
+
+    // NaN damage / defender bonus inputs never poison Enemy.hp
+    combat.applyPlayerShot(0, 1, Number.NaN);
+    expect(Number.isFinite(ecs.getComponents().Enemy.hp[eid])).toBe(true);
+    combat.step(0.1, 'day', 1, 1, Number.NaN, corruption);
+    expect(Number.isFinite(ecs.getComponents().Enemy.hp[eid])).toBe(true);
   });
 });

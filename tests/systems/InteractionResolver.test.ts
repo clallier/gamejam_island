@@ -58,8 +58,8 @@ describe('InteractionResolver (bitECS SoA)', () => {
     const strip = new IslandStrip();
     const nodes = new ResourceNodeCatalog([
       { id: 'tree-at-slot', kind: 'tree_pine', x: DEFENSE_SLOT_XS[0]!, z: 3.2, scale: 1 },
-      { id: 'boulder-left', kind: 'boulder', x: 29, z: 3.2, scale: 1 },
-      { id: 'flower-right', kind: 'wildflower', x: 30, z: 3.2, scale: 1 },
+      { id: 'boulder-left', kind: 'boulder', x: 60, z: 3.2, scale: 1 },
+      { id: 'flower-right', kind: 'wildflower', x: 61, z: 3.2, scale: 1 },
     ]);
     const corruption = new CorruptionField();
     const defenses = new DefenseStructureSystem(ecs, DEFENSE_SLOT_XS);
@@ -72,7 +72,7 @@ describe('InteractionResolver (bitECS SoA)', () => {
       ecs.registerDefenseSlot(idx, `slot-${idx}`, slotX, INTERACT_RANGE),
     );
     // Unregistered slot index out of strip bounds
-    ecs.registerDefenseSlot(99, 'slot-99', 42, INTERACT_RANGE);
+    ecs.registerDefenseSlot(99, 'slot-99', 72, INTERACT_RANGE);
     nodes.getAllNodes().forEach((n, idx) =>
       ecs.registerResourceNode(idx, n.id, n.x, n.z, INTERACT_RANGE),
     );
@@ -91,18 +91,18 @@ describe('InteractionResolver (bitECS SoA)', () => {
     expect(resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses)?.label).toBe('Repair');
 
     // Equal-priority tie-break selects closer resource
-    const closerResource = resolver.resolve(29.8, ecs, strip, nodes, corruption, defenses);
+    const closerResource = resolver.resolve(60.8, ecs, strip, nodes, corruption, defenses);
     expect(closerResource).toMatchObject({ type: 'resource', id: 'flower-right' });
 
     // Boundary distance: exact range matches, epsilon beyond range returns null
-    const exactBoundary = resolver.resolve(30 + INTERACT_RANGE, ecs, strip, nodes, corruption, defenses);
+    const exactBoundary = resolver.resolve(61 + INTERACT_RANGE, ecs, strip, nodes, corruption, defenses);
     expect(exactBoundary).toMatchObject({ type: 'resource', id: 'flower-right' });
-    expect(resolver.resolve(30 + INTERACT_RANGE + 0.001, ecs, strip, nodes, corruption, defenses)).toBeNull();
+    expect(resolver.resolve(61 + INTERACT_RANGE + 0.001, ecs, strip, nodes, corruption, defenses)).toBeNull();
     expect(resolver.resolve(Number.NaN, ecs, strip, nodes, corruption, defenses)).toBeNull();
 
     // Unregistered slot returns null, and depleted node without ECS deactivation still filters to null
-    expect(resolver.resolve(42, ecs, strip, nodes, corruption, defenses)).toBeNull();
+    expect(resolver.resolve(72, ecs, strip, nodes, corruption, defenses)).toBeNull();
     nodes.hitNode('flower-right', 5);
-    expect(resolver.resolve(30 + INTERACT_RANGE, ecs, strip, nodes, corruption, defenses)).toBeNull();
+    expect(resolver.resolve(61 + INTERACT_RANGE, ecs, strip, nodes, corruption, defenses)).toBeNull();
   });
 });

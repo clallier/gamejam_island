@@ -49,6 +49,7 @@ vi.mock('@babylonjs/havok', async (importOriginal) => {
 import type { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { ENEMY_KIND } from '../../src/ecs/constants.ts';
 import { GameApp } from '../../src/game/GameApp.ts';
+import { DEFENSE_SLOT_XS, DOLLHOUSE_PLOTS } from '../../src/world/constants.ts';
 
 describe('GameApp (composition root)', () => {
   const cleanups: Array<() => void> = [];
@@ -104,12 +105,18 @@ describe('GameApp (composition root)', () => {
     internal.inventory.add('petals', 20);
     internal.inventory.add('shards', 20);
 
-    // Resize, mute toggle, & cycle phase preview button
+    // Resize, mute toggle, tune sheet toggle, & cycle phase preview button
     window.dispatchEvent(new Event('resize'));
     const muteBtn = internal.hud.getControlByName('btn-mute-audio') as Button;
     muteBtn.onPointerClickObservable.notifyObservers(null as never);
     expect((internal.hud.getControlByName('btn-mute-audio-label') as TextBlock).text).toBe('🔇');
     muteBtn.onPointerClickObservable.notifyObservers(null as never);
+    (internal.hud.getControlByName('btn-tune-sheet') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect((document.querySelector('.balance-drawer') as HTMLElement).hidden).toBe(false);
+    (Array.from(document.querySelectorAll('.balance-drawer__btn')) as HTMLButtonElement[])
+      .find((b) => b.textContent === 'Reset')
+      ?.click();
+    (internal.hud.getControlByName('btn-tune-sheet') as Button).onPointerClickObservable.notifyObservers(null as never);
     (internal.hud.getControlByName('btn-cycle-phase') as Button).onPointerClickObservable.notifyObservers(null as never);
     stepFrames(1);
 
@@ -121,13 +128,15 @@ describe('GameApp (composition root)', () => {
 
     const snapshot = internal.inventory.getSnapshot();
     internal.inventory.spend(snapshot);
-    internal.player.collider.position.x = -13;
+    const engineerX = DOLLHOUSE_PLOTS[0]!.x;
+    const slot0X = DEFENSE_SLOT_XS[0]!;
+    internal.player.collider.position.x = engineerX;
     internal.input.triggerTap('interact');
     stepFrames(1);
     (internal.hud.getControlByName('btn-card-gift') as Button).onPointerClickObservable.notifyObservers(null as never);
     expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Need');
     // Walking away from dollhouse auto-clears focus
-    internal.player.collider.position.x = -26;
+    internal.player.collider.position.x = slot0X;
     stepFrames(1);
     internal.input.triggerTap('interact');
     stepFrames(1);
@@ -144,7 +153,7 @@ describe('GameApp (composition root)', () => {
     internal.inventory.add('shards', snapshot.shards + 20);
 
     // Focus Engineer dollhouse, hang out, gift, furnish, and exit via close button
-    internal.player.collider.position.x = -13;
+    internal.player.collider.position.x = engineerX;
     internal.input.triggerTap('interact');
     stepFrames(1);
     (internal.hud.getControlByName('btn-card-hangout') as Button).onPointerClickObservable.notifyObservers(null as never);
@@ -153,7 +162,7 @@ describe('GameApp (composition root)', () => {
     (internal.hud.getControlByName('btn-close-card') as Button).onPointerClickObservable.notifyObservers(null as never);
 
     // Build and upgrade defense slot 0
-    internal.player.collider.position.x = -26;
+    internal.player.collider.position.x = slot0X;
     internal.input.triggerTap('interact');
     stepFrames(1);
     internal.input.triggerTap('interact');
@@ -192,7 +201,7 @@ describe('GameApp (composition root)', () => {
     internal.timeCycle.jumpToPhase('night');
     const slot0Eid = internal.ecs.getEntityId('slot-0')!;
     internal.ecs.getComponents().Defense.hp[slot0Eid] = 1;
-    internal.ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_BRUTE, -26, -1, 100, 0);
+    internal.ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_BRUTE, slot0X, -1, 100, 0);
     internal.ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 5, 1, 24, 0);
     stepFrames(1);
     expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Defense Destroyed');

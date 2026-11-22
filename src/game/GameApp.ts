@@ -6,6 +6,7 @@ import { ModularAssemblyFactory } from '../assets/ModularAssemblyFactory.ts';
 import { ProceduralPartProvider } from '../assets/ProceduralPartProvider.ts';
 import { StylizedMaterialFactory } from '../assets/StylizedMaterialFactory.ts';
 import { SoundEffectRig } from '../audio/SoundEffectRig.ts';
+import { BalanceSheet } from '../config/BalanceSheet.ts';
 import { IslandEcsWorld } from '../ecs/IslandEcsWorld.ts';
 import { SimulationPipeline } from '../ecs/SimulationPipeline.ts';
 import { DayNightRig } from '../engine/DayNightRig.ts';
@@ -30,6 +31,7 @@ import { type PlantBlockReason, PlantingSystem } from '../systems/PlantingSystem
 import { VillagerBondSystem } from '../systems/VillagerBondSystem.ts';
 import { WaveCombatSystem } from '../systems/WaveCombatSystem.ts';
 import { BabylonHud } from '../ui/BabylonHud.ts';
+import { BalanceSheetDrawer } from '../ui/BalanceSheetDrawer.ts';
 import { HUD_THEME, NEXT_PHASE_MAP } from '../ui/constants.ts';
 import type { DayPhase, DollhousePlot, ResourceKey } from '../world/constants.ts';
 import { CorruptionField } from '../world/CorruptionField.ts';
@@ -61,9 +63,10 @@ export class GameApp {
   private readonly inventory = new InventoryStore();
   private readonly resourceNodes = new ResourceNodeCatalog();
   private readonly ecs = new IslandEcsWorld();
-  private readonly bonds = new VillagerBondSystem(this.ecs);
+  private readonly balance = new BalanceSheet();
+  private readonly bonds = new VillagerBondSystem(this.ecs, this.balance);
   private readonly defenses = new DefenseStructureSystem(this.ecs, this.strip.getDefenseSlots());
-  private readonly waveCombat = new WaveCombatSystem(this.ecs);
+  private readonly waveCombat = new WaveCombatSystem(this.ecs, this.balance);
   private readonly resolver = new InteractionResolver();
   private readonly planting = new PlantingSystem();
   private readonly input = new InputController();
@@ -78,6 +81,8 @@ export class GameApp {
   private enemyVisuals!: EnemyVisualSystem;
   private dustPuffs!: DustPuffSystem;
   private pipeline!: SimulationPipeline;
+  private tuneDrawer: BalanceSheetDrawer | null = null;
+  private unsubBalance: (() => void) | null = null;
   private focusedDollhouse: DollhousePlot | null = null;
   private elapsedSeconds = 0;
   private lastDayNumber = 1;
@@ -126,6 +131,10 @@ export class GameApp {
    */
   public dispose(): void {
     window.removeEventListener('resize', this._handleResize);
+    this.unsubBalance?.();
+    this.unsubBalance = null;
+    this.tuneDrawer?.dispose();
+    this.tuneDrawer = null;
     this.lootDrops?.dispose();
     this.enemyVisuals?.dispose();
     this.dustPuffs?.dispose();
@@ -152,7 +161,7 @@ export class GameApp {
     this.dustPuffs = new DustPuffSystem(this.scene, materials);
     this.environment = new IslandEnvironment(
       this.scene, assembly, blueprints, materials, physics, this.lighting,
-      this.ecs, this.strip, this.corruption, this.resourceNodes,
+      this.ecs, this.strip, this.corruption, this.resourceNodes, this.balance,
     );
     this.pipeline = new SimulationPipeline({
       ecs: this.ecs,
@@ -167,7 +176,7 @@ export class GameApp {
     });
     const hero = assembly.assemble(blueprints.getHeroBlueprint(), 'player-hero');
     this.lighting.addShadowCasters(hero.getMeshes());
-    this.player = new PlayerController(this.scene, physics, this.strip, materials, hero);
+    this.player = new PlayerController(this.scene, physics, this.strip, materials, hero, this.balance);
   }
 
   private _registerEcsEntities(): void {
@@ -195,6 +204,11 @@ export class GameApp {
     });
     this.hud.setOnRestart(() => this._restartIsland());
     this.hud.setOnToggleMute(() => this.hud.setMuted(this.audio.toggleMute()));
+    this.tuneDrawer = new BalanceSheetDrawer(this.balance, this.canvas.parentElement);
+    this.hud.setOnToggleTune(() => this.tuneDrawer?.toggle());
+    this.unsubBalance = this.balance.subscribe(() => {
+      this.environment.syncGridRuler();
+    });
     window.addEventListener('resize', this._handleResize);
   }
 

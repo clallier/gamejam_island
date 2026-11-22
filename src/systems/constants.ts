@@ -4,6 +4,7 @@
  */
 
 import type { PaletteKey, PartId } from '../assets/constants.ts';
+import { BALANCE_DEFAULTS, gridToWorld } from '../config/constants.ts';
 import type { NpcRoleId, ResourceKey } from '../world/constants.ts';
 
 export const INTERACT_RANGE = 3.2;
@@ -107,49 +108,49 @@ export const ENEMY_BREACH_BORDER_PULL = 2.0;
 export const TURRET_BUILD_COST: Partial<Record<ResourceKey, number>> = { wood: 3, stone: 2 };
 export const TURRET_UPGRADE_COST: Partial<Record<ResourceKey, number>> = { wood: 2, stone: 2, shards: 1 };
 export const TURRET_REPAIR_COST: Partial<Record<ResourceKey, number>> = { wood: 1 };
-export const TURRET_RANGE = 14;
-export const TURRET_BASE_COOLDOWN = 1.15;
-export const TURRET_BASE_DAMAGE = 12;
+export const TURRET_RANGE = gridToWorld(BALANCE_DEFAULTS.turretRangeTiles);
+export const TURRET_BASE_COOLDOWN = BALANCE_DEFAULTS.turretCooldownSec;
+export const TURRET_BASE_DAMAGE = BALANCE_DEFAULTS.turretDamage;
 export const TURRET_MAX_HP = 55;
 
-export const ENEMY_SPRITE_HP = 24;
-export const ENEMY_SPRITE_SPEED = 3.2;
+export const ENEMY_SPRITE_HP = BALANCE_DEFAULTS.spriteHp;
+export const ENEMY_SPRITE_SPEED = gridToWorld(BALANCE_DEFAULTS.spriteSpeedTiles);
 export const ENEMY_SPRITE_DAMAGE = 8;
 export const ENEMY_SPRITE_COOLDOWN = 1.1;
 
-export const ENEMY_BRUTE_HP = 56;
-export const ENEMY_BRUTE_SPEED = 1.9;
+export const ENEMY_BRUTE_HP = BALANCE_DEFAULTS.bruteHp;
+export const ENEMY_BRUTE_SPEED = gridToWorld(BALANCE_DEFAULTS.bruteSpeedTiles);
 export const ENEMY_BRUTE_DAMAGE = 16;
 export const ENEMY_BRUTE_COOLDOWN = 1.5;
 
-export const ENEMY_RUSHER_HP = 14;
-export const ENEMY_RUSHER_SPEED = 4.9;
+export const ENEMY_RUSHER_HP = BALANCE_DEFAULTS.rusherHp;
+export const ENEMY_RUSHER_SPEED = gridToWorld(BALANCE_DEFAULTS.rusherSpeedTiles);
 export const ENEMY_RUSHER_DAMAGE = 5;
 export const ENEMY_RUSHER_COOLDOWN = 0.8;
 
 export const WAVE_COUNTS_BY_DAY: readonly number[] = [28, 70, 140, 240, 400];
 
-export const PLAYER_SHOT_RANGE = 9.5;
-export const PLAYER_SHOT_DAMAGE = 14;
-export const PLAYER_AUTOSHOOT_RANGE = 9.5;
-export const PLAYER_AUTOSHOOT_COOLDOWN = 0.42;
-export const PLAYER_AUTOSHOOT_DAMAGE = 14;
-export const PLAYER_SHOT_KNOCKBACK = 1.6;
+export const PLAYER_SHOT_RANGE = gridToWorld(BALANCE_DEFAULTS.bowRangeTiles);
+export const PLAYER_SHOT_DAMAGE = BALANCE_DEFAULTS.bowDamage;
+export const PLAYER_AUTOSHOOT_RANGE = gridToWorld(BALANCE_DEFAULTS.bowRangeTiles);
+export const PLAYER_AUTOSHOOT_COOLDOWN = BALANCE_DEFAULTS.bowCooldownSec;
+export const PLAYER_AUTOSHOOT_DAMAGE = BALANCE_DEFAULTS.bowDamage;
+export const PLAYER_SHOT_KNOCKBACK = gridToWorld(BALANCE_DEFAULTS.bowKnockbackTiles);
 export const TURRET_SHOT_KNOCKBACK = 0.7;
 export const ENEMY_HIT_FLASH_SECONDS = 0.14;
 
-export const DEFENDER_PATROL_SPEED = 4.6;
-export const DEFENDER_GUARD_RADIUS = 10;
-export const DEFENDER_ATTACK_RANGE = 4.2;
-export const DEFENDER_ATTACK_DAMAGE = 16;
-export const DEFENDER_ATTACK_COOLDOWN = 0.18;
-export const DEFENDER_SPEAR_KNOCKBACK = 1.6;
+export const DEFENDER_PATROL_SPEED = gridToWorld(BALANCE_DEFAULTS.npcMoveSpeedTiles);
+export const DEFENDER_GUARD_RADIUS = gridToWorld(BALANCE_DEFAULTS.bramGuardRadiusTiles);
+export const DEFENDER_ATTACK_RANGE = gridToWorld(BALANCE_DEFAULTS.bramSpearRangeTiles);
+export const DEFENDER_ATTACK_DAMAGE = BALANCE_DEFAULTS.bramSpearDamage;
+export const DEFENDER_ATTACK_COOLDOWN = BALANCE_DEFAULTS.bramSpearCooldownSec;
+export const DEFENDER_SPEAR_KNOCKBACK = gridToWorld(BALANCE_DEFAULTS.bramSpearKnockbackTiles);
 
-export const ROAD_CRATE_HIT_RADIUS = 1.1;
-export const ROAD_CRATE_KNOCKBACK = 2.8;
+export const ROAD_CRATE_HIT_RADIUS = gridToWorld(BALANCE_DEFAULTS.crateImpactRadiusTiles);
+export const ROAD_CRATE_KNOCKBACK = gridToWorld(BALANCE_DEFAULTS.crateKnockbackTiles);
 export const ROAD_CRATE_IMPACT_DAMAGE = 6;
 
-export const PLAYER_AUTODODGE_RANGE = 2.4;
-export const PLAYER_AUTODODGE_BASE_COOLDOWN = 4.0;
+export const PLAYER_AUTODODGE_RANGE = gridToWorld(BALANCE_DEFAULTS.autoDodgeRadiusTiles);
+export const PLAYER_AUTODODGE_BASE_COOLDOWN = BALANCE_DEFAULTS.autoDodgeBaseCooldownSec;
 export const PLAYER_AUTODODGE_MIN_COOLDOWN = 1.5;
 export const PLAYER_AUTODODGE_BRAM_REDUCTION = 0.75;

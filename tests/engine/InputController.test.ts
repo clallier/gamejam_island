@@ -81,5 +81,18 @@ describe('InputController', () => {
     expect(snap.interactPressed).toBe(true);
     expect(snap.tossPressed).toBe(true);
     expect(snap.jumpPressed).toBe(true);
+
+    // Keydowns inside form inputs / textareas do not trigger gameplay movement or actions
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowRight' }));
+    const inputEl = document.createElement('input');
+    const textareaEl = document.createElement('textarea');
+    document.body.append(inputEl, textareaEl);
+    inputEl.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD', bubbles: true }));
+    textareaEl.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }));
+    const blocked = input.consumeSnapshot();
+    expect(blocked.moveX).toBe(0);
+    expect(blocked.jumpPressed).toBe(false);
+    inputEl.remove();
+    textareaEl.remove();
   });
 });

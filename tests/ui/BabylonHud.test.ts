@@ -121,15 +121,19 @@ describe('BabylonHud (@babylonjs/gui)', () => {
     const { hud, input } = createHudHarness();
     const onCycle = vi.fn();
     const onClose = vi.fn();
+    const onTune = vi.fn();
     hud.bindControls(input, onCycle, onClose);
+    hud.setOnToggleTune(onTune);
 
     const cycleBtn = hud.getControlByName('btn-cycle-phase') as Button;
+    const tuneBtn = hud.getControlByName('btn-tune-sheet') as Button;
     const closeBtn = hud.getControlByName('btn-close-card') as Button;
     const leftBtn = hud.getControlByName('btn-left') as Button;
     const tossBtn = hud.getControlByName('btn-toss') as Button;
     const plantBtn = hud.getControlByName('btn-plant') as Button;
 
     cycleBtn.onPointerClickObservable.notifyObservers(null as never);
+    tuneBtn.onPointerClickObservable.notifyObservers(null as never);
     closeBtn.onPointerClickObservable.notifyObservers(null as never);
     leftBtn.onPointerDownObservable.notifyObservers(null as never);
     tossBtn.onPointerDownObservable.notifyObservers(null as never);
@@ -137,6 +141,7 @@ describe('BabylonHud (@babylonjs/gui)', () => {
 
     const snap = input.consumeSnapshot();
     expect(onCycle).toHaveBeenCalledTimes(1);
+    expect(onTune).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(snap.moveX).toBe(-1);
     expect(snap.tossPressed).toBe(true);

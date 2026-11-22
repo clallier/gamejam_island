@@ -1,7 +1,9 @@
 /**
- * @fileoverview Canonical constants defining the 1D island topology,
- * dollhouse plots, defense slots, pollution layout, and day/night pacing.
+ * @fileoverview Canonical grid-normalized constants defining the 1D island topology
+ * (`1 tile = 2.5m`), dollhouse plots, defense slots, pollution layout, and day/night pacing.
  */
+
+import { gridToWorld } from '../config/constants.ts';
 
 export type NpcRoleId = 'engineer' | 'medic' | 'defender' | 'merchant';
 export type DayPhase = 'day' | 'dusk' | 'night' | 'dawn';
@@ -34,31 +36,39 @@ export interface PollutionMoundSeed {
   readonly x: number;
 }
 
-export const ISLAND_HALF_LENGTH = 58;
-export const ROAD_HALF_LIMIT = 53;
-export const PORTAL_X = 56;
-export const TOWN_CENTER_HALF = 16;
-export const DEFENSE_RING_HALF = 28;
+export const ISLAND_HALF_TILES = 23;
+export const ROAD_HALF_TILES = 21;
+export const PORTAL_TILES = 22;
+export const TOWN_CENTER_HALF_TILES = 6.5;
+export const DEFENSE_RING_HALF_TILES = 12;
+
+export const ISLAND_HALF_LENGTH = gridToWorld(ISLAND_HALF_TILES);
+export const ROAD_HALF_LIMIT = gridToWorld(ROAD_HALF_TILES);
+export const PORTAL_X = gridToWorld(PORTAL_TILES);
+export const TOWN_CENTER_HALF = gridToWorld(TOWN_CENTER_HALF_TILES);
+export const DEFENSE_RING_HALF = gridToWorld(DEFENSE_RING_HALF_TILES);
 
 export const DAY_CYCLE_SECONDS = 120;
 export const PHASE_DAY_END = 0.48;
 export const PHASE_DUSK_END = 0.6;
 export const PHASE_NIGHT_END = 0.88;
 
-export const INITIAL_LEFT_CORRUPTION_X = -34;
-export const INITIAL_RIGHT_CORRUPTION_X = 34;
-export const MIN_CORRUPTION_HALF_WIDTH = 12;
-export const MAX_CORRUPTION_HALF_WIDTH = 52;
-export const CORRUPTION_EDGE_FEATHER = 4;
+export const INITIAL_CORRUPTION_TILES = 14;
+export const INITIAL_LEFT_CORRUPTION_X = -gridToWorld(INITIAL_CORRUPTION_TILES);
+export const INITIAL_RIGHT_CORRUPTION_X = gridToWorld(INITIAL_CORRUPTION_TILES);
+export const MIN_CORRUPTION_HALF_WIDTH = gridToWorld(5);
+export const MAX_CORRUPTION_HALF_WIDTH = gridToWorld(ROAD_HALF_TILES);
+export const CORRUPTION_EDGE_FEATHER = gridToWorld(1.6);
 
-export const DEFENSE_SLOT_XS: readonly number[] = [-26, -20, 20, 26];
+export const DEFENSE_SLOT_TILES: readonly number[] = [-11, -8, 8, 11];
+export const DEFENSE_SLOT_XS: readonly number[] = DEFENSE_SLOT_TILES.map((tiles) => gridToWorld(tiles));
 
 export const DOLLHOUSE_PLOTS: readonly DollhousePlot[] = [
   {
     roleId: 'engineer',
     npcName: 'Pip',
     roomTitle: 'Cozy Workshop',
-    x: -13,
+    x: gridToWorld(-5),
     themeKey: 'engineer',
     perkTeaser: '+20% Turret Fire Rate & Sturdy Barricades',
     affinityLabel: 'Wood + Stone',
@@ -67,7 +77,7 @@ export const DOLLHOUSE_PLOTS: readonly DollhousePlot[] = [
     roleId: 'medic',
     npcName: 'Sage',
     roomTitle: 'Sunny Greenhouse',
-    x: -5,
+    x: gridToWorld(-2),
     themeKey: 'medic',
     perkTeaser: 'Town Heart Regen & Purifying Petal Aura',
     affinityLabel: 'Sun-Petals + Wood',
@@ -76,7 +86,7 @@ export const DOLLHOUSE_PLOTS: readonly DollhousePlot[] = [
     roleId: 'defender',
     npcName: 'Bram',
     roomTitle: 'Mini Watchtower',
-    x: 5,
+    x: gridToWorld(2),
     themeKey: 'defender',
     perkTeaser: 'Night Road Patrol & Slingshot Power Mod',
     affinityLabel: 'Stone + Gloom Shards',
@@ -85,7 +95,7 @@ export const DOLLHOUSE_PLOTS: readonly DollhousePlot[] = [
     roleId: 'merchant',
     npcName: 'Milo',
     roomTitle: 'Curio Shop',
-    x: 13,
+    x: gridToWorld(5),
     themeKey: 'merchant',
     perkTeaser: 'Resource Barter & Rare Toybox Modules',
     affinityLabel: 'Any Surplus / Shards',

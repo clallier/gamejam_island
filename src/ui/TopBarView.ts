@@ -31,6 +31,7 @@ export class TopBarView {
   private readonly cycleBtnText: TextBlock;
   private readonly muteBtn: Button;
   private readonly muteBtnText: TextBlock;
+  private readonly tuneBtn: Button;
   private readonly heartPill: Rectangle;
   private readonly heartText: TextBlock;
   private readonly purityLabel: TextBlock;
@@ -45,6 +46,7 @@ export class TopBarView {
   private toastRemaining = 0;
   private onCyclePhase: (() => void) | null = null;
   private onToggleMute: (() => void) | null = null;
+  private onToggleTune: (() => void) | null = null;
   private onRestart: (() => void) | null = null;
   private currentTrackWidth = TopBarView.TRACK_WIDTH_DESKTOP;
 
@@ -66,8 +68,10 @@ export class TopBarView {
     const mutePair = this._createMuteButton();
     this.muteBtn = mutePair.button;
     this.muteBtnText = mutePair.label;
+    this.tuneBtn = this._createTuneButton();
     this.statusRow.addControl(this.cycleBtn);
     this.statusRow.addControl(this.muteBtn);
+    this.statusRow.addControl(this.tuneBtn);
     this.heartText = this._addTextPill(this.metricsRow, 'hud-heart', '❤ 100', HUD_THEME.accentAmber, HUD_THEME.borderWarm);
     this.heartPill = this.pillBoxes[this.pillBoxes.length - 1]!;
     const purity = this._createPurityPill();
@@ -142,6 +146,18 @@ export class TopBarView {
   }
 
   /**
+   * Registers the callback fired when toggling the live balance spreadsheet drawer.
+   *
+   * @param callback Balance drawer toggle handler.
+   * @throws Error Never thrown.
+   * @example
+   * topBar.setOnToggleTune(() => drawer.toggle());
+   */
+  public setOnToggleTune(callback: () => void): void {
+    this.onToggleTune = callback;
+  }
+
+  /**
    * Updates the mute button glyph (`🔇` when muted, `🔊` when audible).
    *
    * @param muted Current audio mute state.
@@ -207,6 +223,8 @@ export class TopBarView {
    * @param zone Active `IslandZone`.
    * @param purityRatio Island purity in `[0, 1]`.
    * @param inventory Resource amounts keyed by `ResourceKey`.
+   * @param heartHp Current Town Heart hit points.
+   * @param activeEnemies Total living and queued night wave enemies.
    * @example
    * topBar.updateStatus(snap, 'town', 0.55, inventory);
    */
@@ -286,6 +304,20 @@ export class TopBarView {
     button.addControl(label);
     button.onPointerClickObservable.add(() => this.onToggleMute?.());
     return { button, label };
+  }
+
+  private _createTuneButton(): Button {
+    const button = new Button('btn-tune-sheet');
+    button.widthInPixels = 30;
+    button.heightInPixels = 32;
+    button.cornerRadius = 16;
+    button.thickness = 1.5;
+    button.color = HUD_THEME.borderWarm;
+    button.background = HUD_THEME.surfaceButton;
+    button.isPointerBlocker = true;
+    button.addControl(this._makeLabel('btn-tune-sheet-label', '⚙', HUD_THEME.textPrimary));
+    button.onPointerClickObservable.add(() => this.onToggleTune?.());
+    return button;
   }
 
   private _createPurityPill(): {
@@ -385,10 +417,11 @@ export class TopBarView {
   private _applyFontAndWidths(metrics: HudLayoutMetrics): void {
     const compact = metrics.isCompact;
     const scale = compact ? Math.min(1, (metrics.viewportWidth - 20) / 412) : 1;
-    this.pillBoxes[0]!.widthInPixels = Math.round((compact ? 106 : 126) * scale);
-    this.pillBoxes[1]!.widthInPixels = Math.round((compact ? 98 : 118) * scale);
-    this.cycleBtn.widthInPixels = Math.round((compact ? 114 : 136) * scale);
-    this.muteBtn.widthInPixels = Math.max(28, Math.round(32 * scale));
+    this.pillBoxes[0]!.widthInPixels = Math.round((compact ? 102 : 124) * scale);
+    this.pillBoxes[1]!.widthInPixels = Math.round((compact ? 92 : 114) * scale);
+    this.cycleBtn.widthInPixels = Math.round((compact ? 108 : 132) * scale);
+    this.muteBtn.widthInPixels = Math.max(26, Math.round(30 * scale));
+    this.tuneBtn.widthInPixels = Math.max(26, Math.round(30 * scale));
     this.heartPill.widthInPixels = Math.round((compact ? 58 : 66) * scale);
     this.pillBoxes[4]!.widthInPixels = Math.round((compact ? 136 : 168) * scale);
     this.pillBoxes[5]!.widthInPixels = Math.round((compact ? 168 : 210) * scale);

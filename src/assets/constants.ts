@@ -3,6 +3,8 @@
  * shared across procedural and glTF modular asset providers.
  */
 
+import { gridToWorld } from '../config/constants.ts';
+
 export type SocketName =
   | 'root'
   | 'torso'
@@ -85,6 +87,6 @@ export type PaletteKey =
 export const MATERIAL_RIM_BIAS = 0.25;
 export const MATERIAL_RIM_POWER = 2.6;
 export const MATERIAL_SPECULAR_SCALE = 0.08;
-export const DOLLHOUSE_WIDTH = 4.4;
+export const DOLLHOUSE_WIDTH = gridToWorld(1.8);
 export const DOLLHOUSE_HEIGHT = 3.1;
 export const DOLLHOUSE_DEPTH = 3.0;

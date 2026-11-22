@@ -1,7 +1,8 @@
+import '@babylonjs/core/Meshes/thinInstanceMesh.js';
 import { PointLight } from '@babylonjs/core/Lights/pointLight.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { Scalar } from '@babylonjs/core/Maths/math.scalar.js';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import type { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
@@ -12,12 +13,14 @@ import { BlueprintRegistry } from '../assets/BlueprintRegistry.ts';
 import type { PaletteKey, PartId } from '../assets/constants.ts';
 import type { AssembledModel, ModularAssemblyFactory } from '../assets/ModularAssemblyFactory.ts';
 import type { StylizedMaterialFactory } from '../assets/StylizedMaterialFactory.ts';
+import { type BalanceSheet, defaultBalanceSheet } from '../config/BalanceSheet.ts';
+import { gridToWorld } from '../config/constants.ts';
 import type { DayNightRig } from '../engine/DayNightRig.ts';
 import type { PhysicsWorld } from '../engine/PhysicsWorld.ts';
 import type { IslandEcsWorld } from '../ecs/IslandEcsWorld.ts';
 import { NpcStandee } from '../entities/NpcStandee.ts';
 import type { PlantedFlora } from '../systems/PlantingSystem.ts';
-import { type NpcRoleId, PORTAL_X } from '../world/constants.ts';
+import { type NpcRoleId, PORTAL_X, ROAD_HALF_TILES } from '../world/constants.ts';
 import type { CorruptionField } from '../world/CorruptionField.ts';
 import type { IslandStrip } from '../world/IslandStrip.ts';
 import type { ResourceNodeCatalog } from '../world/ResourceNodeCatalog.ts';
@@ -78,6 +81,7 @@ export class IslandEnvironment {
   private readonly physics: PhysicsWorld;
   private readonly lighting: DayNightRig;
   private readonly ecs: IslandEcsWorld;
+  private readonly balance: BalanceSheet;
   private readonly npcStandees: NpcStandee[] = [];
   private readonly npcByRole = new Map<NpcRoleId, NpcStandee>();
   private readonly dollhouseModels = new Map<NpcRoleId, AssembledModel>();
@@ -89,6 +93,7 @@ export class IslandEnvironment {
   private readonly corruptionBorders: { left: TransformNode; right: TransformNode };
   private readonly unsubWobbleRemove: () => void;
   private shrineNode: TransformNode | null = null;
+  private roadGridMesh: Mesh | null = null;
 
   /**
    * Builds all static and animated 3D elements of the 1D diorama island.
@@ -103,6 +108,7 @@ export class IslandEnvironment {
    * @param strip 1D island topology model.
    * @param corruption Initial corruption state.
    * @param resourceNodes Harvestable frontier resource catalog.
+   * @param balance Runtime `BalanceSheet` driving live grid scale and ruler visibility.
    * @example
    * const env = new IslandEnvironment(scene, assembly, blueprints, materials, physics, lighting, ecs, strip, corruption, nodes);
    */
@@ -117,6 +123,7 @@ export class IslandEnvironment {
     strip: IslandStrip,
     corruption: CorruptionField,
     resourceNodes: ResourceNodeCatalog,
+    balance: BalanceSheet = defaultBalanceSheet,
   ) {
     this.scene = scene;
     this.assembly = assembly;
@@ -125,6 +132,7 @@ export class IslandEnvironment {
     this.physics = physics;
     this.lighting = lighting;
     this.ecs = ecs;
+    this.balance = balance;
     this._buildTerrainAndWater();
     this._buildShrine();
     this._buildDollhousesAndNpcs(strip);
@@ -324,6 +332,31 @@ export class IslandEnvironment {
   }
 
   /**
+   * Shows or hides the thin-instanced 1-tile road ruler markers along the strip.
+   *
+   * @param visible `true` to show tile tick markers on the road, `false` to hide them.
+   * @throws Error Never thrown.
+   * @example
+   * env.setGridRulerVisible(true);
+   */
+  public setGridRulerVisible(visible: boolean): void {
+    if (this.roadGridMesh) this.roadGridMesh.isVisible = visible;
+  }
+
+  /**
+   * Synchronizes road tile ruler visibility and spacing from the live `BalanceSheet`.
+   *
+   * @throws Error Never thrown.
+   * @example
+   * env.syncGridRuler();
+   */
+  public syncGridRuler(): void {
+    if (!this.roadGridMesh) return;
+    this.roadGridMesh.isVisible = this.balance.get('showGridRuler') >= 0.5;
+    this._writeRoadGridMatrices(this.roadGridMesh);
+  }
+
+  /**
    * Samples dynamic road crates moving fast enough to bowl over enemies or kick up dust.
    *
    * @param dt Frame delta in seconds used to tick per-crate dust emission cooldowns.
@@ -376,6 +409,34 @@ export class IslandEnvironment {
     road.material = this.materials.getMaterial('clayCream');
     road.receiveShadows = true;
     this.physics.attachStaticBox(road, 0.4, 0.05);
+    this._buildRoadGridMarkers();
+  }
+
+  private _buildRoadGridMarkers(): void {
+    const marker = MeshBuilder.CreateBox(
+      'road-grid-marker',
+      { width: 0.07, height: 0.015, depth: ROAD_DEPTH - 0.18 },
+      this.scene,
+    );
+    marker.material = this.materials.getMaterial('stoneWarm');
+    marker.isPickable = false;
+    marker.isVisible = this.balance.get('showGridRuler') >= 0.5;
+    this._writeRoadGridMatrices(marker);
+    this.roadGridMesh = marker;
+  }
+
+  private _writeRoadGridMatrices(marker: Mesh): void {
+    const unitMeters = this.balance.get('gridUnitMeters');
+    const count = ROAD_HALF_TILES * 2 + 1;
+    const buffer = new Float32Array(count * 16);
+    for (let idx = 0; idx < count; idx++) {
+      const tile = idx - ROAD_HALF_TILES;
+      const scaleX = tile === 0 || tile % 5 === 0 ? 1.8 : 1;
+      Matrix.Scaling(scaleX, 1, 1)
+        .multiply(Matrix.Translation(gridToWorld(tile, unitMeters), 0.008, 0))
+        .copyToArray(buffer, idx * 16);
+    }
+    marker.thinInstanceSetBuffer('matrix', buffer, 16, true);
   }
 
   private _buildWaterAndLilies(): void {
@@ -417,7 +478,7 @@ export class IslandEnvironment {
       this._addRoomLight(plot.roleId, plot.x);
       const npcModel = this.assembly.assemble(this.blueprints.getNpcBlueprint(plot.roleId), `npc-${plot.roleId}`);
       this.lighting.addShadowCasters(npcModel.getMeshes());
-      const standee = new NpcStandee(plot, npcModel, index);
+      const standee = new NpcStandee(plot, npcModel, index, this.balance);
       this.npcStandees.push(standee);
       this.npcByRole.set(plot.roleId, standee);
     });

@@ -89,6 +89,8 @@ export class BabylonHud {
    * @param zone Active `IslandZone`.
    * @param purityRatio Island purity ratio in `[0, 1]`.
    * @param inventory Resource amounts by `ResourceKey`.
+   * @param heartHp Current Town Heart hit points.
+   * @param activeEnemies Total living and queued night wave enemies.
    * @example
    * hud.updateStatus(timeSnap, 'town', 0.55, inventory);
    */
@@ -125,6 +127,18 @@ export class BabylonHud {
    */
   public setOnToggleMute(callback: () => void): void {
     this.topBar.setOnToggleMute(callback);
+  }
+
+  /**
+   * Registers the callback invoked when toggling the live balance spreadsheet drawer.
+   *
+   * @param callback Balance drawer toggle handler.
+   * @throws Error Never thrown.
+   * @example
+   * hud.setOnToggleTune(() => drawer.toggle());
+   */
+  public setOnToggleTune(callback: () => void): void {
+    this.topBar.setOnToggleTune(callback);
   }
 
   /**

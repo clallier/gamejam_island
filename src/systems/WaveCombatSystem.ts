@@ -1,42 +1,19 @@
+import { type BalanceSheet, defaultBalanceSheet } from '../config/BalanceSheet.ts';
 import { DEFENSE_KIND, ENEMY_KIND } from '../ecs/constants.ts';
 import type { IslandEcsWorld } from '../ecs/IslandEcsWorld.ts';
 import type { DayPhase } from '../world/constants.ts';
 import type { CorruptionField } from '../world/CorruptionField.ts';
 import {
-  DEFENDER_ATTACK_COOLDOWN,
-  DEFENDER_ATTACK_DAMAGE,
-  DEFENDER_ATTACK_RANGE,
-  DEFENDER_GUARD_RADIUS,
-  DEFENDER_PATROL_SPEED,
-  DEFENDER_SPEAR_KNOCKBACK,
   ENEMY_BREACH_BORDER_PULL,
   ENEMY_BRUTE_COOLDOWN,
   ENEMY_BRUTE_DAMAGE,
-  ENEMY_BRUTE_HP,
-  ENEMY_BRUTE_SPEED,
   ENEMY_HIT_FLASH_SECONDS,
   ENEMY_RUSHER_COOLDOWN,
   ENEMY_RUSHER_DAMAGE,
-  ENEMY_RUSHER_HP,
-  ENEMY_RUSHER_SPEED,
   ENEMY_SPRITE_COOLDOWN,
   ENEMY_SPRITE_DAMAGE,
-  ENEMY_SPRITE_HP,
-  ENEMY_SPRITE_SPEED,
-  PLAYER_AUTODODGE_RANGE,
-  PLAYER_AUTOSHOOT_COOLDOWN,
-  PLAYER_AUTOSHOOT_DAMAGE,
-  PLAYER_AUTOSHOOT_RANGE,
-  PLAYER_SHOT_DAMAGE,
-  PLAYER_SHOT_KNOCKBACK,
-  PLAYER_SHOT_RANGE,
-  ROAD_CRATE_HIT_RADIUS,
   ROAD_CRATE_IMPACT_DAMAGE,
-  ROAD_CRATE_KNOCKBACK,
   TOWN_HEART_MAX_HP,
-  TURRET_BASE_COOLDOWN,
-  TURRET_BASE_DAMAGE,
-  TURRET_RANGE,
   TURRET_SHOT_KNOCKBACK,
   WAVE_COUNTS_BY_DAY,
 } from './constants.ts';
@@ -95,6 +72,7 @@ export class WaveCombatSystem {
   private static readonly DEFENDER_HOME_X = 5;
 
   private readonly ecs: IslandEcsWorld;
+  private readonly balance: BalanceSheet;
   private readonly slainEids: number[] = [];
   private townHeartHp = TOWN_HEART_MAX_HP;
   private activeWaveDay = 0;
@@ -110,12 +88,14 @@ export class WaveCombatSystem {
    * Initializes the night wave and combat coordinator over `ecs`.
    *
    * @param ecs Shared `IslandEcsWorld`.
+   * @param balance Runtime `BalanceSheet` driving live speeds, ranges, and damages.
    * @throws Error Never thrown during construction.
    * @example
    * const combat = new WaveCombatSystem(ecs);
    */
-  public constructor(ecs: IslandEcsWorld) {
+  public constructor(ecs: IslandEcsWorld, balance: BalanceSheet = defaultBalanceSheet) {
     this.ecs = ecs;
+    this.balance = balance;
   }
 
   /**
@@ -146,19 +126,20 @@ export class WaveCombatSystem {
     playerFacing: 1 | -1 = 1,
     playerAutoShootMultiplier = 1,
   ): WaveCombatFrameResult {
-    if (this.isGameOver) return this._buildResult([], [], false, phase);
+    if (this.isGameOver) return this._buildResult([], [], false);
     const safeDt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
     const safeRate = Number.isFinite(turretFireRateMultiplier) ? Math.max(0, turretFireRateMultiplier) : 1;
+    const safeBonus = Number.isFinite(defenderDamageBonus) ? Math.max(0, defenderDamageBonus) : 0;
     this._tickSpawning(safeDt, phase, dayNumber);
     const defenseDestroyed = this._stepEnemies(safeDt, corruption);
     const shots = this._stepTurrets(safeDt, safeRate);
     if (playerX !== undefined) {
       this._stepPlayerAutoShoot(safeDt, playerX, playerFacing, playerAutoShootMultiplier, shots);
     }
-    this._stepDefenderPatrol(safeDt, phase, defenderDamageBonus, shots);
+    this._stepDefenderPatrol(safeDt, safeBonus, shots);
     const slain = this._collectAndDespawnSlain();
     this._checkTownHeartDefeat();
-    return this._buildResult(shots, slain, defenseDestroyed, phase);
+    return this._buildResult(shots, slain, defenseDestroyed);
   }
 
   /**
@@ -166,7 +147,7 @@ export class WaveCombatSystem {
    *
    * @param playerX Current player X coordinate.
    * @param facing Normalized facing sign (`1` right, `-1` left).
-   * @param damage Damage inflicted on hit. Defaults to `PLAYER_SHOT_DAMAGE`.
+   * @param damage Damage inflicted on hit. Defaults to `balance.get('bowDamage')`.
    * @returns Hit descriptor if an enemy was in range, else `null`.
    * @throws Error Never thrown.
    * @example
@@ -175,12 +156,12 @@ export class WaveCombatSystem {
   public applyPlayerShot(
     playerX: number,
     facing: 1 | -1,
-    damage = PLAYER_SHOT_DAMAGE,
+    damage = this.balance.get('bowDamage'),
   ): PlayerShotHit | null {
     if (this.isGameOver) return null;
-    const targetEid = this._findEnemyInDirection(playerX, facing, PLAYER_SHOT_RANGE);
+    const targetEid = this._findEnemyInDirection(playerX, facing, this.balance.getWorld('bowRangeTiles'));
     if (targetEid === -1) return null;
-    const killed = this._damageEnemy(targetEid, damage, playerX, PLAYER_SHOT_KNOCKBACK);
+    const killed = this._damageEnemy(targetEid, damage, playerX, this.balance.getWorld('bowKnockbackTiles'));
     const hitX = this.ecs.getComponents().Position.x[targetEid] ?? playerX;
     if (killed) this.ecs.despawnEntity(targetEid);
     return { x: hitX, killed };
@@ -210,13 +191,16 @@ export class WaveCombatSystem {
    * Detects the side (`-1` left, `1` right) of the nearest enemy threatening `playerX` within `radius`.
    *
    * @param playerX Current player X coordinate.
-   * @param radius Threat detection radius around `playerX` (defaults to `PLAYER_AUTODODGE_RANGE`).
+   * @param radius Threat detection radius around `playerX` (defaults to `balance.getWorld('autoDodgeRadiusTiles')`).
    * @returns `-1` if threat is left, `1` if threat is right, or `0` when clear.
    * @throws Error Never thrown.
    * @example
    * const side = combat.findIncomingThreatSide(player.getX());
    */
-  public findIncomingThreatSide(playerX: number, radius = PLAYER_AUTODODGE_RANGE): -1 | 1 | 0 {
+  public findIncomingThreatSide(
+    playerX: number,
+    radius = this.balance.getWorld('autoDodgeRadiusTiles'),
+  ): -1 | 1 | 0 {
     const eid = this._findNearestLivingEnemy(playerX, radius);
     if (eid === -1) return 0;
     return (this.ecs.getComponents().Position.x[eid] ?? playerX) >= playerX ? 1 : -1;
@@ -226,10 +210,10 @@ export class WaveCombatSystem {
    * Returns total enemies scheduled for night wave `dayNumber`.
    *
    * @param dayNumber 1-based day index.
-   * @returns Total enemy count (`12` Day 1 → `260` Day 5, `+60` per day beyond).
+   * @returns Total enemy count (`28` Day 1 → `400` Day 5, `+100` per day beyond).
    * @throws Error Never thrown.
    * @example
-   * expect(combat.getWaveTotalForDay(5)).toBe(260);
+   * expect(combat.getWaveTotalForDay(5)).toBe(400);
    */
   public getWaveTotalForDay(dayNumber: number): number {
     const idx = Math.max(1, Math.floor(dayNumber)) - 1;
@@ -308,8 +292,12 @@ export class WaveCombatSystem {
   public reset(): void {
     this.slainEids.length = 0;
     for (const eid of this.ecs.queryEnemies()) {
+      if (this.ecs.isEntityAlive(eid)) this.slainEids.push(eid);
+    }
+    for (const eid of this.slainEids) {
       if (this.ecs.isEntityAlive(eid)) this.ecs.despawnEntity(eid);
     }
+    this.slainEids.length = 0;
     this.townHeartHp = TOWN_HEART_MAX_HP;
     this.activeWaveDay = 0;
     this.remainingToSpawn = 0;
@@ -354,11 +342,13 @@ export class WaveCombatSystem {
   }
 
   private _pickEnemySpec(idx: number, dayNumber: number): { kind: number; hp: number; speed: number } {
-    if (idx % 5 === 4) return { kind: ENEMY_KIND.GLOOM_BRUTE, hp: ENEMY_BRUTE_HP, speed: ENEMY_BRUTE_SPEED };
-    if (dayNumber >= 2 && idx % 3 === 1) {
-      return { kind: ENEMY_KIND.GLOOM_RUSHER, hp: ENEMY_RUSHER_HP, speed: ENEMY_RUSHER_SPEED };
+    if (idx % 5 === 4) {
+      return { kind: ENEMY_KIND.GLOOM_BRUTE, hp: this.balance.get('bruteHp'), speed: this.balance.getWorld('bruteSpeedTiles') };
     }
-    return { kind: ENEMY_KIND.GLOOM_SPRITE, hp: ENEMY_SPRITE_HP, speed: ENEMY_SPRITE_SPEED };
+    if (dayNumber >= 2 && idx % 3 === 1) {
+      return { kind: ENEMY_KIND.GLOOM_RUSHER, hp: this.balance.get('rusherHp'), speed: this.balance.getWorld('rusherSpeedTiles') };
+    }
+    return { kind: ENEMY_KIND.GLOOM_SPRITE, hp: this.balance.get('spriteHp'), speed: this.balance.getWorld('spriteSpeedTiles') };
   }
 
   private _stepEnemies(dt: number, corruption: CorruptionField): boolean {
@@ -376,7 +366,7 @@ export class WaveCombatSystem {
         this._attackHeart(eid, dt, Enemy, corruption);
         continue;
       }
-      Position.x[eid] = x + (x < 0 ? 1 : -1) * (Enemy.speed[eid] ?? ENEMY_SPRITE_SPEED) * dt;
+      Position.x[eid] = x + (x < 0 ? 1 : -1) * (Enemy.speed[eid] ?? this.balance.getWorld('spriteSpeedTiles')) * dt;
     }
     return defenseDestroyed;
   }
@@ -440,21 +430,31 @@ export class WaveCombatSystem {
   private _stepTurrets(dt: number, rateMultiplier: number): CombatShotEvent[] {
     const { Position, Defense } = this.ecs.getComponents();
     const shots: CombatShotEvent[] = [];
+    const range = this.balance.getWorld('turretRangeTiles');
     for (const defEid of this.ecs.queryDefenses()) {
       if ((Defense.kind[defEid] ?? DEFENSE_KIND.EMPTY) !== DEFENSE_KIND.TURRET) continue;
       const cd = Math.max(0, (Defense.fireCooldown[defEid] ?? 0) - dt * rateMultiplier);
       Defense.fireCooldown[defEid] = cd;
       if (cd > 0) continue;
-      const fromX = Position.x[defEid] ?? 0;
-      const enemyEid = this._findNearestLivingEnemy(fromX, TURRET_RANGE);
-      if (enemyEid === -1) continue;
-      this.ecs.setTurretTarget(defEid, enemyEid);
-      const dmg = TURRET_BASE_DAMAGE * ((Defense.level[defEid] ?? 1) >= 2 ? 1.5 : 1);
-      this._damageEnemy(enemyEid, dmg, fromX, TURRET_SHOT_KNOCKBACK);
-      Defense.fireCooldown[defEid] = TURRET_BASE_COOLDOWN;
-      shots.push({ fromX, toX: Position.x[enemyEid] ?? fromX, source: 'turret' });
+      this._fireTurret(defEid, Position.x[defEid] ?? 0, range, Defense, shots);
     }
     return shots;
+  }
+
+  private _fireTurret(
+    defEid: number,
+    fromX: number,
+    range: number,
+    Defense: { readonly level: Uint8Array; readonly fireCooldown: Float32Array },
+    shots: CombatShotEvent[],
+  ): void {
+    const enemyEid = this._findNearestLivingEnemy(fromX, range);
+    if (enemyEid === -1) return;
+    this.ecs.setTurretTarget(defEid, enemyEid);
+    const dmg = this.balance.get('turretDamage') * ((Defense.level[defEid] ?? 1) >= 2 ? 1.5 : 1);
+    this._damageEnemy(enemyEid, dmg, fromX, TURRET_SHOT_KNOCKBACK);
+    Defense.fireCooldown[defEid] = this.balance.get('turretCooldownSec');
+    shots.push({ fromX, toX: this.ecs.getComponents().Position.x[enemyEid] ?? fromX, source: 'turret' });
   }
 
   private _stepPlayerAutoShoot(
@@ -467,59 +467,67 @@ export class WaveCombatSystem {
     const safeMult = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
     this.playerShootCooldown = Math.max(0, this.playerShootCooldown - dt * safeMult);
     if (this.playerShootCooldown > 0) return;
-    const enemyEid = this._findEnemyInDirection(playerX, facing, PLAYER_AUTOSHOOT_RANGE);
+    const enemyEid = this._findEnemyInDirection(playerX, facing, this.balance.getWorld('bowRangeTiles'));
     if (enemyEid === -1) return;
-    this._damageEnemy(enemyEid, PLAYER_AUTOSHOOT_DAMAGE, playerX, PLAYER_SHOT_KNOCKBACK);
-    this.playerShootCooldown = PLAYER_AUTOSHOOT_COOLDOWN;
+    this._damageEnemy(enemyEid, this.balance.get('bowDamage'), playerX, this.balance.getWorld('bowKnockbackTiles'));
+    this.playerShootCooldown = this.balance.get('bowCooldownSec');
     shots.push({ fromX: playerX, toX: this.ecs.getComponents().Position.x[enemyEid] ?? playerX, source: 'player' });
   }
 
   private _damageEnemy(enemyEid: number, damage: number, originX: number, knockback: number): boolean {
     const { Position, Enemy } = this.ecs.getComponents();
-    const nextHp = (Enemy.hp[enemyEid] ?? 0) - damage;
+    const safeDamage = Number.isFinite(damage) ? Math.max(0, damage) : 0;
+    const safeKnockback = Number.isFinite(knockback) ? knockback : 0;
+    const nextHp = (Enemy.hp[enemyEid] ?? 0) - safeDamage;
     Enemy.hp[enemyEid] = nextHp;
     Enemy.hitFlash[enemyEid] = ENEMY_HIT_FLASH_SECONDS;
     const enemyX = Position.x[enemyEid] ?? originX;
     const pushDir = enemyX >= originX ? 1 : -1;
     const pushScale = Enemy.kind[enemyEid] === ENEMY_KIND.GLOOM_BRUTE ? 0.25 : 1;
-    Position.x[enemyEid] = enemyX + pushDir * knockback * pushScale;
+    Position.x[enemyEid] = enemyX + pushDir * safeKnockback * pushScale;
     return nextHp <= 0;
   }
 
   private _hitEnemiesWithCrate(crateX: number, crateVx: number, slain: SlainEnemyEvent[]): void {
     const { Position, Enemy } = this.ecs.getComponents();
     const originX = crateX - Math.sign(crateVx || 1) * 0.5;
+    const hitRadius = this.balance.getWorld('crateImpactRadiusTiles');
+    const knockback = this.balance.getWorld('crateKnockbackTiles');
+    this.slainEids.length = 0;
     for (const eid of this.ecs.queryEnemies()) {
       if (!this.ecs.isEntityAlive(eid) || (Enemy.hp[eid] ?? 0) <= 0) continue;
-      if (Math.abs((Position.x[eid] ?? 0) - crateX) > ROAD_CRATE_HIT_RADIUS) continue;
-      if (!this._damageEnemy(eid, ROAD_CRATE_IMPACT_DAMAGE, originX, ROAD_CRATE_KNOCKBACK)) continue;
+      if (Math.abs((Position.x[eid] ?? 0) - crateX) > hitRadius) continue;
+      if (!this._damageEnemy(eid, ROAD_CRATE_IMPACT_DAMAGE, originX, knockback)) continue;
       slain.push({ eid, x: Position.x[eid] ?? crateX, kind: Enemy.kind[eid] ?? 0 });
-      this.ecs.despawnEntity(eid);
+      this.slainEids.push(eid);
+    }
+    for (const eid of this.slainEids) {
+      if (this.ecs.isEntityAlive(eid)) this.ecs.despawnEntity(eid);
     }
   }
 
   private _stepDefenderPatrol(
     dt: number,
-    phase: DayPhase,
     bonusDamage: number,
     shots: CombatShotEvent[],
   ): void {
     this.defenderCooldown = Math.max(0, this.defenderCooldown - dt);
-    const guardRange = DEFENDER_GUARD_RADIUS + DEFENDER_ATTACK_RANGE;
-    const targetEid = phase === 'night' ? this._findNearestLivingEnemy(0, guardRange) : -1;
+    const guardRadius = this.balance.getWorld('bramGuardRadiusTiles');
+    const spearRange = this.balance.getWorld('bramSpearRangeTiles');
+    const targetEid = this._findNearestLivingEnemy(0, guardRadius + spearRange);
     if (targetEid === -1) {
       this._moveDefenderToward(WaveCombatSystem.DEFENDER_HOME_X, dt);
       return;
     }
     const enemyX = this.ecs.getComponents().Position.x[targetEid] ?? 0;
-    const guardTargetX = Math.max(-DEFENDER_GUARD_RADIUS, Math.min(DEFENDER_GUARD_RADIUS, enemyX));
-    this._moveDefenderToward(guardTargetX, dt);
-    if (Math.abs(enemyX - this.defenderX) > DEFENDER_ATTACK_RANGE || this.defenderCooldown > 0) return;
-    this._executeDefenderSpearThrust(enemyX, bonusDamage, shots);
+    this._moveDefenderToward(Math.max(-guardRadius, Math.min(guardRadius, enemyX)), dt);
+    if (Math.abs(enemyX - this.defenderX) > spearRange || this.defenderCooldown > 0) return;
+    this._executeDefenderSpearThrust(enemyX, spearRange, bonusDamage, shots);
   }
 
   private _executeDefenderSpearThrust(
     enemyX: number,
+    spearRange: number,
     bonusDamage: number,
     shots: CombatShotEvent[],
   ): void {
@@ -530,27 +538,28 @@ export class WaveCombatSystem {
     for (const eid of this.ecs.queryEnemies()) {
       if (!this.ecs.isEntityAlive(eid) || (Enemy.hp[eid] ?? 0) <= 0) continue;
       const ex = Position.x[eid] ?? 0;
-      if ((ex - this.defenderX) * thrustDir < -0.4 || Math.abs(ex - this.defenderX) > DEFENDER_ATTACK_RANGE) continue;
+      if ((ex - this.defenderX) * thrustDir < -0.4 || Math.abs(ex - this.defenderX) > spearRange) continue;
       this._strikeWithSpear(eid, bonusDamage);
       hitAny = true;
     }
-    this.defenderCooldown = DEFENDER_ATTACK_COOLDOWN;
+    this.defenderCooldown = this.balance.get('bramSpearCooldownSec');
     if (hitAny) {
-      shots.push({ fromX: this.defenderX, toX: this.defenderX + thrustDir * DEFENDER_ATTACK_RANGE, source: 'defender' });
+      shots.push({ fromX: this.defenderX, toX: this.defenderX + thrustDir * spearRange, source: 'defender' });
     }
   }
 
   private _strikeWithSpear(eid: number, bonusDamage: number): void {
     const isBrute = this.ecs.getComponents().Enemy.kind[eid] === ENEMY_KIND.GLOOM_BRUTE;
-    const dmg = isBrute
-      ? Math.round((DEFENDER_ATTACK_DAMAGE + bonusDamage) * 0.5)
-      : DEFENDER_ATTACK_DAMAGE + bonusDamage;
-    this._damageEnemy(eid, dmg, 0, isBrute ? 0 : DEFENDER_SPEAR_KNOCKBACK);
+    const baseDmg = this.balance.get('bramSpearDamage');
+    const dmg = isBrute ? Math.round((baseDmg + bonusDamage) * 0.5) : baseDmg + bonusDamage;
+    const knockback = isBrute ? 0 : this.balance.getWorld('bramSpearKnockbackTiles');
+    this._damageEnemy(eid, dmg, 0, knockback);
   }
 
   private _moveDefenderToward(targetX: number, dt: number): void {
     const dx = targetX - this.defenderX;
-    this.defenderX += Math.sign(dx) * Math.min(Math.abs(dx), DEFENDER_PATROL_SPEED * dt);
+    const speed = this.balance.getWorld('npcMoveSpeedTiles');
+    this.defenderX += Math.sign(dx) * Math.min(Math.abs(dx), speed * dt);
   }
 
   private _findNearestLivingEnemy(originX: number, maxRange: number): number {
@@ -604,7 +613,6 @@ export class WaveCombatSystem {
     shots: readonly CombatShotEvent[],
     slain: readonly SlainEnemyEvent[],
     defenseDestroyed: boolean,
-    phase: DayPhase,
   ): WaveCombatFrameResult {
     const activeEnemies = this.ecs.queryEnemies().length;
     return {
@@ -616,7 +624,7 @@ export class WaveCombatSystem {
       activeEnemies,
       totalRemaining: activeEnemies + this.remainingToSpawn,
       gameOver: this.isGameOver,
-      defenderPatrolX: phase === 'night' && activeEnemies > 0 ? this.defenderX : null,
+      defenderPatrolX: activeEnemies > 0 ? this.defenderX : null,
     };
   }
 }

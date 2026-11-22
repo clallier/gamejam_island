@@ -1,4 +1,5 @@
 import type { PaletteKey, PartId } from '../assets/constants.ts';
+import { type BalanceSheet, defaultBalanceSheet } from '../config/BalanceSheet.ts';
 import type { IslandEcsWorld } from '../ecs/IslandEcsWorld.ts';
 import type { NpcRoleId } from '../world/constants.ts';
 import type { InventoryStore } from '../world/InventoryStore.ts';
@@ -8,7 +9,6 @@ import {
   FURNISH_XP,
   type FurnitureTierSpec,
   HANGOUT_XP,
-  PLAYER_AUTODODGE_BASE_COOLDOWN,
   PLAYER_AUTODODGE_BRAM_REDUCTION,
   PLAYER_AUTODODGE_MIN_COOLDOWN,
   VILLAGER_CONFIGS,
@@ -73,17 +73,20 @@ export interface FurnishOutcome {
  */
 export class VillagerBondSystem {
   private readonly ecs: IslandEcsWorld;
+  private readonly balance: BalanceSheet;
 
   /**
    * Binds villager bond progression to the shared `IslandEcsWorld`.
    *
    * @param ecs Initialized `IslandEcsWorld` containing registered villagers.
+   * @param balance Runtime `BalanceSheet` supplying base auto-dodge cooldown.
    * @throws Error Never thrown during construction.
    * @example
    * const bonds = new VillagerBondSystem(ecs);
    */
-  public constructor(ecs: IslandEcsWorld) {
+  public constructor(ecs: IslandEcsWorld, balance: BalanceSheet = defaultBalanceSheet) {
     this.ecs = ecs;
+    this.balance = balance;
   }
 
   /**
@@ -276,9 +279,10 @@ export class VillagerBondSystem {
    */
   public getAutoDodgeCooldown(): number {
     const bramLevel = this._getLevel('defender');
+    const baseCooldown = this.balance.get('autoDodgeBaseCooldownSec');
     return Math.max(
       PLAYER_AUTODODGE_MIN_COOLDOWN,
-      PLAYER_AUTODODGE_BASE_COOLDOWN - (bramLevel - 1) * PLAYER_AUTODODGE_BRAM_REDUCTION,
+      baseCooldown - (bramLevel - 1) * PLAYER_AUTODODGE_BRAM_REDUCTION,
     );
   }
 

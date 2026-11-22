@@ -76,8 +76,10 @@ Hanging out with a villager smoothly zooms the 3/4 camera into their open-front 
   - **Auto-Jump / Auto-Dodge:** Instead of manual platforming jumps, the hero automatically vaults/dodges over incoming enemies or hazard lunges on a skill-scaled cooldown (shortened by player/Bram NPC skills).
   - **Off-Center "Opposing Side" Camera & Default Zoom:** Shifts ahead in the hero's facing direction during both day and night so the player sits opposite targets, with unzoomed default portrait framing.
   - **Bram Town Center Defense:** Bram guards Town Center at constant linear walk speed with walk leg animation and a front-slide AoE spear sweep.
-- **G3 (Current): Grid-Based Systems & Live Tuning Sheet (Propose & Review)**
-  - Express world layout, entity footprints, movement speeds (`gridUnits/s`), and weapon ranges (`gridUnits`) in a canonical **Grid Unit** scale (`1 tile = 2.5` world units), backed by an editable runtime balance sheet for live tweaking while playing.
+- **G3 (Done): Grid-Based Systems & Live Tuning Sheet & Monster-Driven Defenders**
+  - Canonical grid unit `1 tile = 2.5m` (`gridToWorld` / `worldToGrid`) aligning house footprints (`~2 tiles`), defense plinths (`±8, ±11 tiles`), speeds (`tiles/s`), and combat ranges (`tiles`).
+  - Live runtime `BalanceSheet` + toggleable **Balance Sheet Drawer** (`⚙` HUD button or `F2`/`~`) with sliders, CSV/JSON spreadsheet import/export, and thin-instanced 1-tile road ruler markers.
+  - Monster-driven Defender AI: Bram (and defenders) patrol and fight whenever living enemies exist regardless of day/night solar phase, returning to porch rest only once all monsters are defeated.
 - **G4: Dual-Choice Defense Plinths (Barricade vs Turret)**
   - Choose between high-HP stalling **Barricades** and ranged **Turrets** on plinths (`±20`, `±26`) with visual damage/tier states.
 - **G5: Villager Mini-Shops**
@@ -89,7 +91,6 @@ Hanging out with a villager smoothly zooms the 3/4 camera into their open-front 
 - **Assets Review Pass:** Modular silhouette clarity, cutaway room props, and optional `.glb` swap pass.
 - **Music & Audio Review Pass:** Dynamic day/night adaptive soundtrack layering and richer Patapon battle percussion.
 - **Systems Review Pass:** Progression pacing, save/persistence, and performance telemetry.
-- Grid based systems (propose and review)
 - Enemies types and designs (propose and review)
 - Larger world, ecosystems (propose and review) 
 - Village shape (propose and review)

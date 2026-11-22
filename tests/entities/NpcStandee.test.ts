@@ -109,7 +109,8 @@ describe('NpcStandee', () => {
     expect(hand.position.z).toBe(0);
     expect(model.root.position.x).toBeCloseTo(restX, 3);
 
-    // Zero / NaN deltaSeconds and left-facing (-1) attack guard cleanly without NaN drift
+    // Zero / NaN deltaSeconds, NaN patrolX, and left-facing (-1) attack guard cleanly without NaN drift
+    standee.setPatrolX(Number.NaN);
     standee.triggerAttack(-1);
     standee.update(0.5, 0, 0);
     standee.update(0.5, Number.NaN, 0);

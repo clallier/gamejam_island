@@ -1,11 +1,11 @@
 import type { AssembledModel } from '../assets/ModularAssemblyFactory.ts';
+import { type BalanceSheet, defaultBalanceSheet } from '../config/BalanceSheet.ts';
 import type { DollhousePlot } from '../world/constants.ts';
 import { AttackAnimator } from './AttackAnimator.ts';
 import {
   NPC_BOB_AMPLITUDE,
   NPC_BOB_SPEED,
   NPC_LOOK_DISTANCE,
-  NPC_MOVE_SPEED,
 } from './constants.ts';
 import { WalkAnimator } from './WalkAnimator.ts';
 
@@ -19,6 +19,7 @@ export class NpcStandee {
 
   private readonly plot: DollhousePlot;
   private readonly model: AssembledModel;
+  private readonly balance: BalanceSheet;
   private readonly attackAnim: AttackAnimator;
   private readonly walkAnim: WalkAnimator;
   private readonly phaseOffset: number;
@@ -32,12 +33,19 @@ export class NpcStandee {
    * @param plot Owning `DollhousePlot` metadata and X coordinate.
    * @param model Assembled modular villager model.
    * @param index Ordering index used to desynchronize idle breathing phase.
+   * @param balance Runtime `BalanceSheet` providing live villager walk speed.
    * @example
    * const standee = new NpcStandee(plot, npcModel, 0);
    */
-  public constructor(plot: DollhousePlot, model: AssembledModel, index: number) {
+  public constructor(
+    plot: DollhousePlot,
+    model: AssembledModel,
+    index: number,
+    balance: BalanceSheet = defaultBalanceSheet,
+  ) {
     this.plot = plot;
     this.model = model;
+    this.balance = balance;
     this.attackAnim = new AttackAnimator(model);
     this.walkAnim = new WalkAnimator(model);
     this.phaseOffset = index * 1.4;
@@ -68,7 +76,7 @@ export class NpcStandee {
   }
 
   /**
-   * Assigns an active road X coordinate for night patrol, or `null` to return home.
+   * Assigns an active road X coordinate while defending against monsters, or `null` to return home.
    *
    * @param x Target road X coordinate, or `null` for porch rest position.
    * @throws Error Never thrown.
@@ -76,7 +84,7 @@ export class NpcStandee {
    * standee.setPatrolX(22);
    */
   public setPatrolX(x: number | null): void {
-    this.patrolX = x;
+    this.patrolX = x !== null && Number.isFinite(x) ? x : null;
   }
 
   /**
@@ -119,7 +127,8 @@ export class NpcStandee {
     const deltaX = targetX - this.visualBaseX;
     const deltaZ = targetZ - this.model.root.position.z;
     const dist = Math.hypot(deltaX, deltaZ);
-    const ratio = dist > 0 ? Math.min(1, (NPC_MOVE_SPEED * dt) / dist) : 0;
+    const moveSpeed = this.balance.getWorld('npcMoveSpeedTiles');
+    const ratio = dist > 0 ? Math.min(1, (moveSpeed * dt) / dist) : 0;
     const dx = deltaX * ratio;
     const dz = deltaZ * ratio;
     this.visualBaseX += dx;
