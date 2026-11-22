@@ -24,6 +24,7 @@ export const INTERACTABLE_PRIORITY = {
 export const ENEMY_KIND = {
   GLOOM_SPRITE: 0,
   GLOOM_BRUTE: 1,
+  GLOOM_RUSHER: 2,
 } as const;
 
 export const DEFENSE_KIND = {

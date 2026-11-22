@@ -6,6 +6,7 @@
 export type SfxKey =
   | 'jump'
   | 'toss'
+  | 'bowShot'
   | 'harvest'
   | 'pickup'
   | 'plant'
@@ -30,6 +31,10 @@ export interface ToneStep {
 export const SFX_RECIPES: Record<SfxKey, readonly ToneStep[]> = {
   jump: [{ freq: 260, slideTo: 520, duration: 0.12, type: 'sine', gain: 0.12 }],
   toss: [{ freq: 440, slideTo: 240, duration: 0.08, type: 'triangle', gain: 0.1 }],
+  bowShot: [
+    { freq: 340, slideTo: 185, duration: 0.09, type: 'triangle', gain: 0.1 },
+    { freq: 720, slideTo: 420, duration: 0.06, type: 'sine', gain: 0.05, delay: 0.02 },
+  ],
   harvest: [{ freq: 185, slideTo: 120, duration: 0.09, type: 'triangle', gain: 0.15 }],
   pickup: [
     { freq: 587.33, duration: 0.07, type: 'sine', gain: 0.1 },

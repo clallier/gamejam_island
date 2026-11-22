@@ -12,25 +12,39 @@ import {
   ENEMY_BRUTE_DAMAGE,
   ENEMY_BRUTE_HP,
   ENEMY_BRUTE_SPEED,
+  ENEMY_HIT_FLASH_SECONDS,
+  ENEMY_RUSHER_COOLDOWN,
+  ENEMY_RUSHER_DAMAGE,
+  ENEMY_RUSHER_HP,
+  ENEMY_RUSHER_SPEED,
   ENEMY_SPRITE_COOLDOWN,
   ENEMY_SPRITE_DAMAGE,
   ENEMY_SPRITE_HP,
   ENEMY_SPRITE_SPEED,
+  PLAYER_AUTOSHOOT_COOLDOWN,
+  PLAYER_AUTOSHOOT_DAMAGE,
+  PLAYER_AUTOSHOOT_RANGE,
   PLAYER_SHOT_DAMAGE,
+  PLAYER_SHOT_KNOCKBACK,
   PLAYER_SHOT_RANGE,
   TOWN_HEART_MAX_HP,
   TURRET_BASE_COOLDOWN,
   TURRET_BASE_DAMAGE,
   TURRET_RANGE,
+  TURRET_SHOT_KNOCKBACK,
+  WAVE_COUNTS_BY_DAY,
 } from './constants.ts';
 
 /**
- * Emitted when a built turret fires at an enemy entity.
+ * Emitted when a turret or player auto-shoot bolt strikes an enemy entity.
  */
-export interface TurretShotEvent {
+export interface CombatShotEvent {
   readonly fromX: number;
   readonly toX: number;
+  readonly source: 'turret' | 'player';
 }
+
+export type TurretShotEvent = CombatShotEvent;
 
 /**
  * Emitted when an enemy entity is defeated and despawned.
@@ -53,23 +67,23 @@ export interface PlayerShotHit {
  * Per-frame summary returned by `WaveCombatSystem.step`.
  */
 export interface WaveCombatFrameResult {
-  readonly shots: readonly TurretShotEvent[];
+  readonly shots: readonly CombatShotEvent[];
   readonly slain: readonly SlainEnemyEvent[];
   readonly defenseDestroyed: boolean;
   readonly heartHp: number;
   readonly heartMaxHp: number;
   readonly activeEnemies: number;
+  readonly totalRemaining: number;
   readonly gameOver: boolean;
   readonly defenderPatrolX: number | null;
 }
 
 /**
- * Coordinates night wave spawning, enemy approach & breaches, turret targeting,
- * Defender AI road patrols, player slingshot combat, and Town Heart HP via bitECS.
+ * Coordinates escalating night horde waves (up to 260+ enemies on Day 5),
+ * player auto-shoot, turret targeting, knockback/hit-flash, Defender patrol, and Town Heart HP.
  */
 export class WaveCombatSystem {
   private static readonly SPAWN_ABS_X = 54;
-  private static readonly SPAWN_INTERVAL = 1.65;
   private static readonly HEART_HIT_RADIUS = 2.2;
   private static readonly STRUCTURE_HIT_RADIUS = 1.5;
   private static readonly DEFENDER_HOME_X = 5;
@@ -83,6 +97,7 @@ export class WaveCombatSystem {
   private spawnIndex = 0;
   private defenderX = WaveCombatSystem.DEFENDER_HOME_X;
   private defenderCooldown = 0;
+  private playerShootCooldown = 0;
   private isGameOver = false;
 
   /**
@@ -98,7 +113,7 @@ export class WaveCombatSystem {
   }
 
   /**
-   * Advances wave spawning, enemy movement, turret fire, and Defender patrol for one frame.
+   * Advances wave spawning, enemy movement, turret & player auto-fire, and Defender patrol.
    *
    * @param dt Clamped frame delta in seconds.
    * @param phase Current solar `DayPhase`.
@@ -106,10 +121,13 @@ export class WaveCombatSystem {
    * @param turretFireRateMultiplier Speed multiplier unlocked by Pip (`>= 1`).
    * @param defenderDamageBonus Bonus strike damage unlocked by Bram Lv 3.
    * @param corruption Live `CorruptionField` pulled inward on Town Heart breaches.
+   * @param playerX Optional live player X coordinate enabling automatic range fire.
+   * @param playerFacing Player facing sign (`1` right, `-1` left); auto-shoot only fires ahead.
+   * @param playerAutoShootMultiplier Auto-shoot fire-rate multiplier (`>= 1`).
    * @returns Immutable per-frame `WaveCombatFrameResult`.
    * @throws Error Never thrown during frame updates.
    * @example
-   * const frame = combat.step(dt, timeSnap.phase, timeSnap.dayNumber, 1.25, 6, corruption);
+   * const frame = combat.step(dt, 'night', 5, 1.25, 6, corruption, player.getX(), player.getFacing());
    */
   public step(
     dt: number,
@@ -118,6 +136,9 @@ export class WaveCombatSystem {
     turretFireRateMultiplier: number,
     defenderDamageBonus: number,
     corruption: CorruptionField,
+    playerX?: number,
+    playerFacing: 1 | -1 = 1,
+    playerAutoShootMultiplier = 1,
   ): WaveCombatFrameResult {
     if (this.isGameOver) return this._buildResult([], [], false, phase);
     const safeDt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
@@ -125,17 +146,17 @@ export class WaveCombatSystem {
     this._tickSpawning(safeDt, phase, dayNumber);
     const defenseDestroyed = this._stepEnemies(safeDt, corruption);
     const shots = this._stepTurrets(safeDt, safeRate);
+    if (playerX !== undefined) {
+      this._stepPlayerAutoShoot(safeDt, playerX, playerFacing, playerAutoShootMultiplier, shots);
+    }
     this._stepDefenderPatrol(safeDt, phase, defenderDamageBonus);
     const slain = this._collectAndDespawnSlain();
-    if (this.townHeartHp <= 0) {
-      this.townHeartHp = 0;
-      this.isGameOver = true;
-    }
+    this._checkTownHeartDefeat();
     return this._buildResult(shots, slain, defenseDestroyed, phase);
   }
 
   /**
-   * Fires a player slingshot pebble along `facing` and damages the nearest enemy ahead.
+   * Fires a manual slingshot pebble along `facing`, applying knockback and hit-flash.
    *
    * @param playerX Current player X coordinate.
    * @param facing Normalized facing sign (`1` right, `-1` left).
@@ -153,13 +174,36 @@ export class WaveCombatSystem {
     if (this.isGameOver) return null;
     const targetEid = this._findEnemyInDirection(playerX, facing, PLAYER_SHOT_RANGE);
     if (targetEid === -1) return null;
-    const { Position, Enemy } = this.ecs.getComponents();
-    const hitX = Position.x[targetEid] ?? playerX;
-    const nextHp = (Enemy.hp[targetEid] ?? 0) - damage;
-    Enemy.hp[targetEid] = nextHp;
-    const killed = nextHp <= 0;
+    const killed = this._damageEnemy(targetEid, damage, playerX, PLAYER_SHOT_KNOCKBACK);
+    const hitX = this.ecs.getComponents().Position.x[targetEid] ?? playerX;
     if (killed) this.ecs.despawnEntity(targetEid);
     return { x: hitX, killed };
+  }
+
+  /**
+   * Returns total enemies scheduled for night wave `dayNumber`.
+   *
+   * @param dayNumber 1-based day index.
+   * @returns Total enemy count (`12` Day 1 → `260` Day 5, `+60` per day beyond).
+   * @throws Error Never thrown.
+   * @example
+   * expect(combat.getWaveTotalForDay(5)).toBe(260);
+   */
+  public getWaveTotalForDay(dayNumber: number): number {
+    const idx = Math.max(1, Math.floor(dayNumber)) - 1;
+    return WAVE_COUNTS_BY_DAY[idx] ?? 400 + (idx - (WAVE_COUNTS_BY_DAY.length - 1)) * 100;
+  }
+
+  /**
+   * Returns how many enemies from the active night wave have not yet spawned.
+   *
+   * @returns Pending spawn count.
+   * @throws Error Never thrown.
+   * @example
+   * const pending = combat.getRemainingToSpawn();
+   */
+  public getRemainingToSpawn(): number {
+    return this.remainingToSpawn;
   }
 
   /**
@@ -212,7 +256,7 @@ export class WaveCombatSystem {
   }
 
   /**
-   * Resets wave state, Town Heart HP, Defender patrol position, and clears all enemies.
+   * Resets wave state, Town Heart HP, cooldowns, Defender patrol, and clears all enemies.
    *
    * @throws Error Never thrown.
    * @example
@@ -230,37 +274,55 @@ export class WaveCombatSystem {
     this.spawnIndex = 0;
     this.defenderX = WaveCombatSystem.DEFENDER_HOME_X;
     this.defenderCooldown = 0;
+    this.playerShootCooldown = 0;
     this.isGameOver = false;
+  }
+
+  private _checkTownHeartDefeat(): void {
+    if (this.townHeartHp > 0) return;
+    this.townHeartHp = 0;
+    this.isGameOver = true;
   }
 
   private _tickSpawning(dt: number, phase: DayPhase, dayNumber: number): void {
     if (phase === 'night' && dayNumber > this.activeWaveDay) {
       this.activeWaveDay = dayNumber;
-      this.remainingToSpawn = 3 + dayNumber * 2;
+      this.remainingToSpawn = this.getWaveTotalForDay(dayNumber);
       this.spawnTimer = 0.2;
     }
     if (phase !== 'night' || this.remainingToSpawn <= 0) return;
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
-    this.spawnTimer = WaveCombatSystem.SPAWN_INTERVAL;
-    this.remainingToSpawn -= 1;
-    this._spawnNextEnemy();
+    const total = this.getWaveTotalForDay(dayNumber);
+    this.spawnTimer = Math.max(0.06, 1.15 / Math.sqrt(total / 8));
+    const burst = dayNumber >= 5 ? 5 : dayNumber >= 4 ? 4 : dayNumber >= 3 ? 3 : 2;
+    const batch = Math.min(this.remainingToSpawn, burst);
+    for (let i = 0; i < batch; i++) this._spawnNextEnemy(dayNumber);
+    this.remainingToSpawn -= batch;
   }
 
-  private _spawnNextEnemy(): void {
+  private _spawnNextEnemy(dayNumber: number): void {
     const idx = this.spawnIndex++;
     const side: -1 | 1 = idx % 2 === 0 ? -1 : 1;
-    const isBrute = idx % 3 === 2;
-    const kind = isBrute ? ENEMY_KIND.GLOOM_BRUTE : ENEMY_KIND.GLOOM_SPRITE;
-    const hp = isBrute ? ENEMY_BRUTE_HP : ENEMY_SPRITE_HP;
-    const speed = isBrute ? ENEMY_BRUTE_SPEED : ENEMY_SPRITE_SPEED;
-    this.ecs.spawnEnemyEntity(kind, side * WaveCombatSystem.SPAWN_ABS_X, side, hp, speed);
+    const spec = this._pickEnemySpec(idx, dayNumber);
+    const jitter = (idx % 4) * 0.45;
+    const z = ((idx % 5) - 2) * 0.24;
+    this.ecs.spawnEnemyEntity(spec.kind, side * (WaveCombatSystem.SPAWN_ABS_X - jitter), side, spec.hp, spec.speed, z);
+  }
+
+  private _pickEnemySpec(idx: number, dayNumber: number): { kind: number; hp: number; speed: number } {
+    if (idx % 5 === 4) return { kind: ENEMY_KIND.GLOOM_BRUTE, hp: ENEMY_BRUTE_HP, speed: ENEMY_BRUTE_SPEED };
+    if (dayNumber >= 2 && idx % 3 === 1) {
+      return { kind: ENEMY_KIND.GLOOM_RUSHER, hp: ENEMY_RUSHER_HP, speed: ENEMY_RUSHER_SPEED };
+    }
+    return { kind: ENEMY_KIND.GLOOM_SPRITE, hp: ENEMY_SPRITE_HP, speed: ENEMY_SPRITE_SPEED };
   }
 
   private _stepEnemies(dt: number, corruption: CorruptionField): boolean {
     const { Position, Enemy, Defense } = this.ecs.getComponents();
     let defenseDestroyed = false;
     for (const eid of this.ecs.queryEnemies()) {
+      Enemy.hitFlash[eid] = Math.max(0, (Enemy.hitFlash[eid] ?? 0) - dt);
       const x = Position.x[eid] ?? 0;
       const blockerEid = this._findBlockingDefense(x);
       if (blockerEid !== -1) {
@@ -271,8 +333,7 @@ export class WaveCombatSystem {
         this._attackHeart(eid, dt, Enemy, corruption);
         continue;
       }
-      const dir = x < 0 ? 1 : -1;
-      Position.x[eid] = x + dir * (Enemy.speed[eid] ?? ENEMY_SPRITE_SPEED) * dt;
+      Position.x[eid] = x + (x < 0 ? 1 : -1) * (Enemy.speed[eid] ?? ENEMY_SPRITE_SPEED) * dt;
     }
     return defenseDestroyed;
   }
@@ -281,11 +342,15 @@ export class WaveCombatSystem {
     const { Position, Defense } = this.ecs.getComponents();
     for (const defEid of this.ecs.queryDefenses()) {
       if ((Defense.kind[defEid] ?? DEFENSE_KIND.EMPTY) === DEFENSE_KIND.EMPTY) continue;
-      if (Math.abs((Position.x[defEid] ?? 0) - enemyX) <= WaveCombatSystem.STRUCTURE_HIT_RADIUS) {
-        return defEid;
-      }
+      if (Math.abs((Position.x[defEid] ?? 0) - enemyX) <= WaveCombatSystem.STRUCTURE_HIT_RADIUS) return defEid;
     }
     return -1;
+  }
+
+  private _enemyCombatProfile(kind: number): { damage: number; cooldown: number } {
+    if (kind === ENEMY_KIND.GLOOM_BRUTE) return { damage: ENEMY_BRUTE_DAMAGE, cooldown: ENEMY_BRUTE_COOLDOWN };
+    if (kind === ENEMY_KIND.GLOOM_RUSHER) return { damage: ENEMY_RUSHER_DAMAGE, cooldown: ENEMY_RUSHER_COOLDOWN };
+    return { damage: ENEMY_SPRITE_DAMAGE, cooldown: ENEMY_SPRITE_COOLDOWN };
   }
 
   private _attackDefense(
@@ -293,22 +358,16 @@ export class WaveCombatSystem {
     defEid: number,
     dt: number,
     Enemy: { readonly kind: Uint8Array; readonly attackCooldown: Float32Array },
-    Defense: {
-      readonly kind: Uint8Array;
-      readonly level: Uint8Array;
-      readonly hp: Float32Array;
-      readonly maxHp: Float32Array;
-      readonly fireCooldown: Float32Array;
-    },
+    Defense: { readonly kind: Uint8Array; readonly level: Uint8Array; readonly hp: Float32Array; readonly maxHp: Float32Array; readonly fireCooldown: Float32Array },
   ): boolean {
     const cd = (Enemy.attackCooldown[enemyEid] ?? 0) - dt;
     if (cd > 0) {
       Enemy.attackCooldown[enemyEid] = cd;
       return false;
     }
-    const brute = Enemy.kind[enemyEid] === ENEMY_KIND.GLOOM_BRUTE;
-    Enemy.attackCooldown[enemyEid] = brute ? ENEMY_BRUTE_COOLDOWN : ENEMY_SPRITE_COOLDOWN;
-    const nextHp = (Defense.hp[defEid] ?? 0) - (brute ? ENEMY_BRUTE_DAMAGE : ENEMY_SPRITE_DAMAGE);
+    const profile = this._enemyCombatProfile(Enemy.kind[enemyEid] ?? ENEMY_KIND.GLOOM_SPRITE);
+    Enemy.attackCooldown[enemyEid] = profile.cooldown;
+    const nextHp = (Defense.hp[defEid] ?? 0) - profile.damage;
     Defense.hp[defEid] = Math.max(0, nextHp);
     if (nextHp > 0) return false;
     Defense.kind[defEid] = DEFENSE_KIND.EMPTY;
@@ -329,16 +388,15 @@ export class WaveCombatSystem {
       Enemy.attackCooldown[enemyEid] = cd;
       return;
     }
-    const brute = Enemy.kind[enemyEid] === ENEMY_KIND.GLOOM_BRUTE;
-    Enemy.attackCooldown[enemyEid] = brute ? ENEMY_BRUTE_COOLDOWN : ENEMY_SPRITE_COOLDOWN;
-    this.townHeartHp = Math.max(0, this.townHeartHp - (brute ? ENEMY_BRUTE_DAMAGE : ENEMY_SPRITE_DAMAGE));
-    const flank = (Enemy.side[enemyEid] ?? -1) < 0 ? 'left' : 'right';
-    corruption.encroachBorder(flank, ENEMY_BREACH_BORDER_PULL);
+    const profile = this._enemyCombatProfile(Enemy.kind[enemyEid] ?? ENEMY_KIND.GLOOM_SPRITE);
+    Enemy.attackCooldown[enemyEid] = profile.cooldown;
+    this.townHeartHp = Math.max(0, this.townHeartHp - profile.damage);
+    corruption.encroachBorder((Enemy.side[enemyEid] ?? -1) < 0 ? 'left' : 'right', ENEMY_BREACH_BORDER_PULL);
   }
 
-  private _stepTurrets(dt: number, rateMultiplier: number): TurretShotEvent[] {
-    const { Position, Defense, Enemy } = this.ecs.getComponents();
-    const shots: TurretShotEvent[] = [];
+  private _stepTurrets(dt: number, rateMultiplier: number): CombatShotEvent[] {
+    const { Position, Defense } = this.ecs.getComponents();
+    const shots: CombatShotEvent[] = [];
     for (const defEid of this.ecs.queryDefenses()) {
       if ((Defense.kind[defEid] ?? DEFENSE_KIND.EMPTY) !== DEFENSE_KIND.TURRET) continue;
       const cd = Math.max(0, (Defense.fireCooldown[defEid] ?? 0) - dt * rateMultiplier);
@@ -349,11 +407,40 @@ export class WaveCombatSystem {
       if (enemyEid === -1) continue;
       this.ecs.setTurretTarget(defEid, enemyEid);
       const dmg = TURRET_BASE_DAMAGE * ((Defense.level[defEid] ?? 1) >= 2 ? 1.5 : 1);
-      Enemy.hp[enemyEid] = (Enemy.hp[enemyEid] ?? 0) - dmg;
+      this._damageEnemy(enemyEid, dmg, fromX, TURRET_SHOT_KNOCKBACK);
       Defense.fireCooldown[defEid] = TURRET_BASE_COOLDOWN;
-      shots.push({ fromX, toX: Position.x[enemyEid] ?? fromX });
+      shots.push({ fromX, toX: Position.x[enemyEid] ?? fromX, source: 'turret' });
     }
     return shots;
+  }
+
+  private _stepPlayerAutoShoot(
+    dt: number,
+    playerX: number,
+    facing: 1 | -1,
+    multiplier: number,
+    shots: CombatShotEvent[],
+  ): void {
+    const safeMult = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+    this.playerShootCooldown = Math.max(0, this.playerShootCooldown - dt * safeMult);
+    if (this.playerShootCooldown > 0) return;
+    const enemyEid = this._findEnemyInDirection(playerX, facing, PLAYER_AUTOSHOOT_RANGE);
+    if (enemyEid === -1) return;
+    this._damageEnemy(enemyEid, PLAYER_AUTOSHOOT_DAMAGE, playerX, PLAYER_SHOT_KNOCKBACK);
+    this.playerShootCooldown = PLAYER_AUTOSHOOT_COOLDOWN;
+    shots.push({ fromX: playerX, toX: this.ecs.getComponents().Position.x[enemyEid] ?? playerX, source: 'player' });
+  }
+
+  private _damageEnemy(enemyEid: number, damage: number, originX: number, knockback: number): boolean {
+    const { Position, Enemy } = this.ecs.getComponents();
+    const nextHp = (Enemy.hp[enemyEid] ?? 0) - damage;
+    Enemy.hp[enemyEid] = nextHp;
+    Enemy.hitFlash[enemyEid] = ENEMY_HIT_FLASH_SECONDS;
+    const enemyX = Position.x[enemyEid] ?? originX;
+    const pushDir = enemyX >= originX ? 1 : -1;
+    const pushScale = Enemy.kind[enemyEid] === ENEMY_KIND.GLOOM_BRUTE ? 0.25 : 1;
+    Position.x[enemyEid] = enemyX + pushDir * knockback * pushScale;
+    return nextHp <= 0;
   }
 
   private _stepDefenderPatrol(dt: number, phase: DayPhase, bonusDamage: number): void {
@@ -364,14 +451,13 @@ export class WaveCombatSystem {
       this.defenderX += Math.sign(dxHome) * Math.min(Math.abs(dxHome), DEFENDER_PATROL_SPEED * dt);
       return;
     }
-    const { Position, Enemy } = this.ecs.getComponents();
-    const dx = (Position.x[targetEid] ?? 0) - this.defenderX;
+    const dx = (this.ecs.getComponents().Position.x[targetEid] ?? 0) - this.defenderX;
     if (Math.abs(dx) > DEFENDER_ATTACK_RANGE) {
       this.defenderX += Math.sign(dx) * Math.min(Math.abs(dx), DEFENDER_PATROL_SPEED * dt);
       return;
     }
     if (this.defenderCooldown > 0) return;
-    Enemy.hp[targetEid] = (Enemy.hp[targetEid] ?? 0) - (DEFENDER_ATTACK_DAMAGE + bonusDamage);
+    this._damageEnemy(targetEid, DEFENDER_ATTACK_DAMAGE + bonusDamage, this.defenderX, 0);
     this.defenderCooldown = DEFENDER_ATTACK_COOLDOWN;
   }
 
@@ -397,9 +483,8 @@ export class WaveCombatSystem {
     for (const eid of this.ecs.queryEnemies()) {
       if (!this.ecs.isEntityAlive(eid) || (Enemy.hp[eid] ?? 0) <= 0) continue;
       const delta = (Position.x[eid] ?? 0) - originX;
-      const inFront = delta * facing >= -0.75;
       const dist = Math.abs(delta);
-      if (inFront && dist <= bestDist) {
+      if (delta * facing >= 0 && dist <= bestDist) {
         bestDist = dist;
         bestEid = eid;
       }
@@ -412,8 +497,7 @@ export class WaveCombatSystem {
     this.slainEids.length = 0;
     const slain: SlainEnemyEvent[] = [];
     for (const eid of this.ecs.queryEnemies()) {
-      if (!this.ecs.isEntityAlive(eid)) continue;
-      if ((Enemy.hp[eid] ?? 0) <= 0) {
+      if (this.ecs.isEntityAlive(eid) && (Enemy.hp[eid] ?? 0) <= 0) {
         this.slainEids.push(eid);
         slain.push({ eid, x: Position.x[eid] ?? 0, kind: Enemy.kind[eid] ?? 0 });
       }
@@ -425,20 +509,22 @@ export class WaveCombatSystem {
   }
 
   private _buildResult(
-    shots: readonly TurretShotEvent[],
+    shots: readonly CombatShotEvent[],
     slain: readonly SlainEnemyEvent[],
     defenseDestroyed: boolean,
     phase: DayPhase,
   ): WaveCombatFrameResult {
+    const activeEnemies = this.ecs.queryEnemies().length;
     return {
       shots,
       slain,
       defenseDestroyed,
       heartHp: this.townHeartHp,
       heartMaxHp: TOWN_HEART_MAX_HP,
-      activeEnemies: this.ecs.queryEnemies().length,
+      activeEnemies,
+      totalRemaining: activeEnemies + this.remainingToSpawn,
       gameOver: this.isGameOver,
-      defenderPatrolX: phase === 'night' && this.ecs.queryEnemies().length > 0 ? this.defenderX : null,
+      defenderPatrolX: phase === 'night' && activeEnemies > 0 ? this.defenderX : null,
     };
   }
 }

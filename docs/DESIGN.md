@@ -60,5 +60,36 @@ Hanging out with a villager smoothly zooms the 3/4 camera into their open-front 
 2. **Milestone 2 (Done):** Gathering from trees/rocks/wildflowers, bouncing pooled Havok pickups, planting flora to dynamically push corruption borders, scrubbing pollution mounds, reactive bitECS `observe` & zero-allocation `pipe` pipeline.
 3. **Milestone 3 (Done):** bitECS `addPrefab` (`npcTag`) & `createRelation` (`HousedIn`) villager model, Hang-out beats, affinity gifting, Bond leveling (`Lv 1–3`), active town-wide perks, and live cutaway dollhouse room furnishing.
 4. **Milestone 4 (Done):** Nighttime enemy wave director (`WaveCombatSystem`), modular turrets on defense plinths (`DefenseStructureSystem`), reactive `EnemyVisualSystem`, active player slingshot combat, Bram AI night patrol, Town Heart HP + restart loop, and 99.5% automated line coverage.
-5. **Milestone 5 (Current):** Squash-and-stretch toybox juice on jumps/landings/spawns, procedural Web Audio chimes & Patapon-style night drums (`SoundEffectRig`), and HUD mute toggle.
-6. **Post-M5 Review Passes (Next):** Dedicated iteration passes across **Gameplay**, **Assets**, **Music**, and **Systems**.
+5. **Milestone 5 (Done):** Squash-and-stretch toybox juice on jumps/landings/spawns, procedural Web Audio chimes & Patapon-style night drums (`SoundEffectRig`), and HUD mute toggle.
+
+---
+
+## 6. Post-M5 Review Passes
+
+### Gameplay Review Pass (Cosy Days · Fireworks Nights)
+- **G1 (Current): Auto-Shoot & Hundreds-of-Enemies Horde Engine**
+  - Automatic player targeting & slingshot fire with knockback and hit-flash when enemies enter range.
+  - Escalating Day 1→Day 5 swarm curve (`12 → 30 → 65 → 120 → 260` enemies by Day 5) with fast **Gloom Rushers** alongside Sprites & Brutes.
+  - GPU `ThinInstance` batched horde rendering + pooled firework/tracer sparks for 260-enemy battles at 60 FPS.
+- **G2: Dust Puffs, Road Prop Impacts & Auto-Jump Dodge**
+  - Tactile dust puff bursts on footsteps, landings, crate collisions, and explosions; rolling road blocks knock back small swarms.
+  - **Auto-Jump / Auto-Dodge:** Instead of manual platforming jumps, the hero automatically vaults/dodges over incoming enemies or hazard lunges on a skill-scaled cooldown (shortened by player/Bram NPC skills).
+- **G3: Dual-Choice Defense Plinths (Barricade vs Turret)**
+  - Choose between high-HP stalling **Barricades** and ranged **Turrets** on plinths (`±20`, `±26`) with visual damage/tier states.
+- **G4: Villager Mini-Shops**
+  - Expand all 4 cutaway dollhouse interiors into themed mini-shops (**Pip** engineering mods, **Sage** heals & flora buffs, **Bram** auto-shoot & combat upgrades, **Milo** barter & loot charms) unlocked via Bond tiers.
+- **G5: Frontier Gloom Mist Risk/Reward**
+  - Gloom Mist drag past `leftBorderX`/`rightBorderX` countered by purifying blooms or Sage's tonic, rewarding deep frontier mining/shards.
+
+### Subsequent Polish Passes
+- **Assets Review Pass:** Modular silhouette clarity, cutaway room props, and optional `.glb` swap pass.
+- **Music & Audio Review Pass:** Dynamic day/night adaptive soundtrack layering and richer Patapon battle percussion.
+- **Systems Review Pass:** Progression pacing, save/persistence, and performance telemetry.
+- Enemies types and designs
+- Camera: the player should not be in the center but on the opposite side of the screen of the enemies he has to fight
+- Larger world, grid based
+- Village shape
+- The more there is purity and villagers happy, the more the enemies should be aggressive
+- Review weapons and fighters types
+- Resource system
+- Flower/purification system

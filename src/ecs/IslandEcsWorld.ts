@@ -62,6 +62,7 @@ export interface IslandEcsComponents {
     readonly speed: Float32Array;
     readonly side: Int8Array;
     readonly attackCooldown: Float32Array;
+    readonly hitFlash: Float32Array;
   };
   readonly Defense: {
     readonly slotIndex: Uint8Array;
@@ -484,10 +485,11 @@ export class IslandEcsWorld {
    * @param side Origin flank sign (`-1` left, `1` right).
    * @param hp Starting hit points.
    * @param speed Approach speed toward Town Heart in world units/sec.
+   * @param z Initial Z lane offset across the road depth (defaults to `0`).
    * @returns Recycled numeric bitECS `eid`.
    * @throws Error Never thrown for valid parameters.
    * @example
-   * const eid = ecs.spawnEnemyEntity(0, -54, -1, 24, 3.2);
+   * const eid = ecs.spawnEnemyEntity(0, -54, -1, 24, 3.2, -0.24);
    */
   public spawnEnemyEntity(
     kind: number,
@@ -495,18 +497,20 @@ export class IslandEcsWorld {
     side: -1 | 1,
     hp: number,
     speed: number,
+    z = 0,
   ): number {
     const eid = addEntity(this.world);
     const { Position, Enemy } = this.components;
     Position.x[eid] = x;
     Position.y[eid] = 0;
-    Position.z[eid] = 0;
+    Position.z[eid] = z;
     Enemy.kind[eid] = kind;
     Enemy.hp[eid] = hp;
     Enemy.maxHp[eid] = hp;
     Enemy.speed[eid] = speed;
     Enemy.side[eid] = side;
     Enemy.attackCooldown[eid] = 0;
+    Enemy.hitFlash[eid] = 0;
     addComponent(this.world, eid, Position);
     addComponent(this.world, eid, Enemy);
     if (this._assertAlive('spawnEnemyEntity.enemyTag', eid)) addComponent(this.world, eid, this.enemyTag);
@@ -623,6 +627,7 @@ export class IslandEcsWorld {
         speed: new Float32Array(MAX_ENTITIES),
         side: new Int8Array(MAX_ENTITIES),
         attackCooldown: new Float32Array(MAX_ENTITIES),
+        hitFlash: new Float32Array(MAX_ENTITIES),
       },
       Defense: {
         slotIndex: new Uint8Array(MAX_ENTITIES),

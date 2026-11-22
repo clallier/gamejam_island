@@ -1,7 +1,10 @@
 import {
   CAMERA_FOV_FOCUS,
   CAMERA_FOV_LANDSCAPE,
+  CAMERA_FOV_LANDSCAPE_COMBAT,
   CAMERA_FOV_PORTRAIT,
+  CAMERA_FOV_PORTRAIT_COMBAT,
+  CAMERA_PORTRAIT_COMBAT_HALF_WIDTH,
   CAMERA_PORTRAIT_THRESHOLD,
 } from './constants.ts';
 
@@ -19,7 +22,7 @@ export interface CameraPose {
 
 /**
  * Pure deterministic framing calculator for the elevated 3/4 miniature
- * tabletop camera across mobile portrait and desktop landscape viewports.
+ * tabletop camera across mobile portrait, desktop landscape, and combat zoom-out.
  */
 export class CameraFraming {
   private static readonly LANDSCAPE_OFFSET = { y: 6.9, z: -15.4, targetY: 1.25 };
@@ -32,15 +35,17 @@ export class CameraFraming {
    * @param aspectRatio Canvas width divided by height.
    * @param playerX Player X position along the 1D road.
    * @param focusDollhouseX Optional dollhouse X to zoom inside its cutaway room.
+   * @param inCombat When `true`, zooms out during combat so auto-shoot targets stay framed in portrait mode.
    * @returns Immutable `CameraPose`.
    * @throws {RangeError} When `aspectRatio` is not finite or non-positive.
    * @example
-   * const pose = new CameraFraming().compute(0.46, -13, -13);
+   * const pose = new CameraFraming().compute(0.46, 0, null, true);
    */
   public compute(
     aspectRatio: number,
     playerX: number,
     focusDollhouseX: number | null = null,
+    inCombat = false,
   ): CameraPose {
     if (!Number.isFinite(aspectRatio) || aspectRatio <= 0) {
       throw new RangeError('aspectRatio must be a positive finite number');
@@ -48,17 +53,38 @@ export class CameraFraming {
     if (focusDollhouseX !== null) {
       return this._computeFocusPose(aspectRatio, focusDollhouseX);
     }
-    return this._computeRoamPose(aspectRatio, playerX);
+    return this._computeRoamPose(aspectRatio, playerX, inCombat);
   }
 
-  private _computeRoamPose(aspectRatio: number, playerX: number): CameraPose {
+  private _computeRoamPose(aspectRatio: number, playerX: number, inCombat: boolean): CameraPose {
     const isPortrait = aspectRatio < CAMERA_PORTRAIT_THRESHOLD;
+    if (inCombat) return this._computeCombatPose(aspectRatio, playerX, isPortrait);
     const base = isPortrait ? CameraFraming.PORTRAIT_OFFSET : CameraFraming.LANDSCAPE_OFFSET;
     const extraBack = isPortrait ? Math.max(0, 0.56 - aspectRatio) * 8.5 : 0;
     return {
       position: { x: playerX, y: base.y + extraBack * 0.25, z: base.z - extraBack },
       target: { x: playerX, y: base.targetY, z: 0.9 },
       fov: isPortrait ? CAMERA_FOV_PORTRAIT : CAMERA_FOV_LANDSCAPE,
+    };
+  }
+
+  private _computeCombatPose(aspectRatio: number, playerX: number, isPortrait: boolean): CameraPose {
+    if (!isPortrait) {
+      const l = CameraFraming.LANDSCAPE_OFFSET;
+      return {
+        position: { x: playerX, y: l.y + 2.4, z: l.z - 6.0 },
+        target: { x: playerX, y: l.targetY, z: 0.9 },
+        fov: CAMERA_FOV_LANDSCAPE_COMBAT,
+      };
+    }
+    const base = CameraFraming.PORTRAIT_OFFSET;
+    const fov = CAMERA_FOV_PORTRAIT_COMBAT;
+    const neededDist = CAMERA_PORTRAIT_COMBAT_HALF_WIDTH / (aspectRatio * Math.tan(fov * 0.5));
+    const combatDist = Math.min(62, Math.max(26, neededDist));
+    return {
+      position: { x: playerX, y: base.y + (combatDist - Math.abs(base.z)) * 0.34, z: -combatDist },
+      target: { x: playerX, y: base.targetY, z: 0.9 },
+      fov,
     };
   }
 

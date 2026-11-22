@@ -151,12 +151,13 @@ describe('GameApp (composition root)', () => {
     expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Frontier Regrew');
     expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('+2 🌸');
 
-    // Player toss hit + enemy breach -> game over freeze -> restart island
+    // Player toss hit + unguarded Town Heart breach while away -> game over freeze -> restart island
     internal.player.collider.position.x = 0;
     internal.ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 3, 1, 10, 0);
     internal.input.triggerTap('toss');
     stepFrames(1);
 
+    internal.player.collider.position.x = 30;
     internal.ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_BRUTE, 0.5, 1, 500, 0);
     vi.spyOn(internal.engine, 'getDeltaTime').mockReturnValue(50);
     for (let i = 0; i < 240; i++) stepFrames(1);

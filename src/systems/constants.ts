@@ -122,8 +122,21 @@ export const ENEMY_BRUTE_SPEED = 1.9;
 export const ENEMY_BRUTE_DAMAGE = 16;
 export const ENEMY_BRUTE_COOLDOWN = 1.5;
 
-export const PLAYER_SHOT_RANGE = 11;
+export const ENEMY_RUSHER_HP = 14;
+export const ENEMY_RUSHER_SPEED = 4.9;
+export const ENEMY_RUSHER_DAMAGE = 5;
+export const ENEMY_RUSHER_COOLDOWN = 0.8;
+
+export const WAVE_COUNTS_BY_DAY: readonly number[] = [28, 70, 140, 240, 400];
+
+export const PLAYER_SHOT_RANGE = 9.5;
 export const PLAYER_SHOT_DAMAGE = 14;
+export const PLAYER_AUTOSHOOT_RANGE = 9.5;
+export const PLAYER_AUTOSHOOT_COOLDOWN = 0.42;
+export const PLAYER_AUTOSHOOT_DAMAGE = 14;
+export const PLAYER_SHOT_KNOCKBACK = 1.6;
+export const TURRET_SHOT_KNOCKBACK = 0.7;
+export const ENEMY_HIT_FLASH_SECONDS = 0.14;
 
 export const DEFENDER_PATROL_SPEED = 5.2;
 export const DEFENDER_ATTACK_RANGE = 2.4;

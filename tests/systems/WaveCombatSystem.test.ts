@@ -183,4 +183,68 @@ describe('DefenseStructureSystem & WaveCombatSystem', () => {
     expect(frozenStep.shots).toEqual([]);
     expect(frozenStep.slain).toEqual([]);
   });
+
+  it('scales waves to 400 enemies by Day 5, spawns Rushers, and fires player auto-shoot with knockback & hitFlash', () => {
+    const { ecs, combat, corruption } = setupCombatHarness();
+    expect(combat.getWaveTotalForDay(1)).toBe(28);
+    expect(combat.getWaveTotalForDay(2)).toBe(70);
+    expect(combat.getWaveTotalForDay(3)).toBe(140);
+    expect(combat.getWaveTotalForDay(4)).toBe(240);
+    expect(combat.getWaveTotalForDay(5)).toBe(400);
+    expect(combat.getWaveTotalForDay(6)).toBe(500);
+
+    // Night 5 queues 400 enemies and emits burst spawns with Z spread cleanly
+    const night5 = combat.step(0.25, 'night', 5, 1, 0, corruption, 0);
+    expect(night5.totalRemaining).toBe(400);
+    expect(combat.getActiveEnemyCount()).toBeGreaterThanOrEqual(5);
+    const zValues = ecs.queryEnemies().map((eid) => ecs.getComponents().Position.z[eid]);
+    expect(new Set(zValues).size).toBeGreaterThan(1);
+
+    // Clear and test auto-shoot knockback + hitFlash on nearby enemy
+    combat.reset();
+    const targetEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_RUSHER, 8, 1, 14, 4.9);
+    const autoRes = combat.step(0.05, 'day', 1, 1, 0, corruption, 0);
+    expect(autoRes.shots).toHaveLength(1);
+    expect(autoRes.shots[0]).toMatchObject({ fromX: 0, source: 'player' });
+    expect(autoRes.shots[0]!.toX).toBeCloseTo(9.355, 3);
+    expect(autoRes.slain).toHaveLength(1);
+    expect(autoRes.slain[0]?.eid).toBe(targetEid);
+
+    // Surviving Brute resists knockback (0.25x poise: 8 - 1.9*0.5 + 1.6*0.25 = 7.45) and gets hitFlash
+    const bruteEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_BRUTE, 8, 1, 56, 1.9);
+    combat.step(0.5, 'day', 1, 1, 0, corruption, 0);
+    expect(ecs.getComponents().Position.x[bruteEid]).toBeCloseTo(7.45, 3);
+    expect(ecs.getComponents().Enemy.hitFlash[bruteEid]).toBeGreaterThan(0);
+  });
+
+  it('only auto-shoots and fires directional shots at enemies in front of player facing', () => {
+    const { ecs, combat, corruption } = setupCombatHarness();
+    const behindEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, -5, -1, 24, 0);
+
+    // Facing right (1): enemy at x = -5 is behind player at x = 0 -> ignored by both auto-shoot & manual shot
+    const facingRightRes = combat.step(0.05, 'day', 1, 1, 0, corruption, 0, 1);
+    expect(facingRightRes.shots).toEqual([]);
+    expect(combat.applyPlayerShot(0, 1)).toBeNull();
+    expect(ecs.getComponents().Enemy.hp[behindEid]).toBe(24);
+
+    // Turning left (-1) with an enemy also behind at x = +5 -> shoots ONLY enemy ahead at x = -5
+    const rightSideEid = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 5, 1, 24, 0);
+    const facingLeftRes = combat.step(0.5, 'day', 1, 1, 0, corruption, 0, -1);
+    expect(facingLeftRes.shots).toHaveLength(1);
+    expect(facingLeftRes.shots[0]!.toX).toBeLessThan(0);
+    expect(ecs.getComponents().Enemy.hp[behindEid]).toBeLessThan(24);
+    expect(ecs.getComponents().Enemy.hp[rightSideEid]).toBe(24);
+
+    // Turning back right (1) can manually hit enemy ahead at x = +5
+    const hitAhead = combat.applyPlayerShot(0, 1, 24);
+    expect(hitAhead).not.toBeNull();
+    expect(hitAhead?.killed).toBe(true);
+    expect(ecs.isEntityAlive(rightSideEid)).toBe(false);
+
+    // Limited bow range: target beyond PLAYER_AUTOSHOOT_RANGE (9.5) at x = 11 is out of range, x = 8 is hit
+    ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, 11, 1, 24, 0);
+    const outOfRange = combat.step(0.5, 'day', 1, 1, 0, corruption, 0, 1);
+    expect(outOfRange.shots).toEqual([]);
+    expect(combat.applyPlayerShot(0, 1)).toBeNull();
+  });
 });

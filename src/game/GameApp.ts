@@ -80,6 +80,7 @@ export class GameApp {
   private elapsedSeconds = 0;
   private lastDayNumber = 1;
   private lastPhase: DayPhase = 'day';
+  private shotAudioCooldown = 0;
 
   /**
    * Initializes the Babylon engine, scene, and fullscreen Babylon GUI HUD.
@@ -229,12 +230,14 @@ export class GameApp {
     const timeSnap = this.timeCycle.advance(dt);
     this._checkPhaseTransitions(timeSnap.phase, timeSnap.dayNumber);
     this._stepCombat(dt, frameInput, playerX, timeSnap);
+    const inCombat = timeSnap.phase === 'night' || this.waveCombat.getActiveEnemyCount() > 0;
     this.lighting.update(timeSnap, playerX);
-    this.camera.update(dt, this._getAspectRatio(), playerX, this.focusedDollhouse?.x ?? null);
+    this.camera.update(dt, this._getAspectRatio(), playerX, this.focusedDollhouse?.x ?? null, inCombat);
     this.hud.tick(dt);
+    const hudEnemyCount = this.waveCombat.getActiveEnemyCount() + this.waveCombat.getRemainingToSpawn();
     this.hud.updateStatus(
       timeSnap, this.strip.classifyZone(playerX), this.corruption.getPurityRatio(),
-      this.inventory.getSnapshot(), this.waveCombat.getHeartHp(), this.waveCombat.getActiveEnemyCount(),
+      this.inventory.getSnapshot(), this.waveCombat.getHeartHp(), hudEnemyCount,
     );
     const focusedBond = this.focusedDollhouse
       ? this.bonds.getSnapshot(this.focusedDollhouse.roleId, this.inventory)
@@ -250,22 +253,33 @@ export class GameApp {
     playerX: number,
     timeSnap: TimeSnapshot,
   ): void {
+    this.shotAudioCooldown = Math.max(0, this.shotAudioCooldown - dt);
     if (frameInput.tossPressed) {
       const hit = this.waveCombat.applyPlayerShot(playerX, this.player.getFacing());
-      if (hit?.killed) this.lootDrops.spawnBurst('shards', 1, hit.x, 0, this.inventory);
+      if (hit?.killed) this._spawnKillJuice(hit.x);
     }
     const res = this.waveCombat.step(
       dt, timeSnap.phase, timeSnap.dayNumber,
-      this.bonds.getTurretFireRateMultiplier(), this.bonds.getDefenderBonusDamage(), this.corruption,
+      this.bonds.getTurretFireRateMultiplier(), this.bonds.getDefenderBonusDamage(),
+      this.corruption, playerX, this.player.getFacing(),
     );
-    if (res.shots.length > 0) this.audio.play('turretShot');
-    res.shots.forEach((s) => this.enemyVisuals.spawnTracer(s.fromX, s.toX));
-    res.slain.forEach((k) => this.lootDrops.spawnBurst('shards', 1, k.x, 0, this.inventory));
+    if (res.shots.length > 0 && this.shotAudioCooldown <= 0) {
+      const hasBowShot = res.shots.some((s) => s.source === 'player');
+      this.audio.play(hasBowShot ? 'bowShot' : 'turretShot');
+      this.shotAudioCooldown = 0.08;
+    }
+    res.shots.forEach((s) => this.enemyVisuals.spawnTracer(s.fromX, s.toX, s.source));
+    res.slain.forEach((k) => this._spawnKillJuice(k.x));
     if (res.defenseDestroyed) this._syncAllDefenseVisuals('Defense Destroyed!');
     this.environment.setDefenderPatrolX(res.defenderPatrolX);
     this.enemyVisuals.update(this.elapsedSeconds, dt);
     if (res.gameOver) this.audio.play('gameOver');
     this.hud.setGameOver(res.gameOver);
+  }
+
+  private _spawnKillJuice(x: number): void {
+    this.enemyVisuals.spawnFirework(x);
+    this.lootDrops.spawnBurst('shards', 1, x, 0, this.inventory);
   }
 
   private _handleActions(
