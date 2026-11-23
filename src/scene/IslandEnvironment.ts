@@ -17,6 +17,7 @@ import { type BalanceSheet, defaultBalanceSheet } from '../config/BalanceSheet.t
 import { gridToWorld } from '../config/constants.ts';
 import type { DayNightRig } from '../engine/DayNightRig.ts';
 import type { PhysicsWorld } from '../engine/PhysicsWorld.ts';
+import { DEFENSE_KIND } from '../ecs/constants.ts';
 import type { IslandEcsWorld } from '../ecs/IslandEcsWorld.ts';
 import { NpcStandee } from '../entities/NpcStandee.ts';
 import type { PlantedFlora } from '../systems/PlantingSystem.ts';
@@ -285,29 +286,37 @@ export class IslandEnvironment {
   }
 
   /**
-   * Builds, upgrades, or removes a modular turret visual mounted on defense plinth `slotIndex`.
+   * Builds, upgrades, or removes a modular turret or barricade visual on plinth `slotIndex`.
    *
    * @param slotIndex Zero-based defense plinth index.
    * @param x Plinth X coordinate.
-   * @param level Structure level (`0` removes the visual, `1+` renders Lv 1 or scaled Lv 2 turret).
+   * @param level Structure level (`0` removes visual, `1..3` scales tier silhouette).
+   * @param kind Structure kind (`DEFENSE_KIND.TURRET` or `DEFENSE_KIND.BARRICADE`).
    * @throws Error Never thrown.
    * @example
-   * env.syncDefenseVisual(0, -26, 1);
+   * env.syncDefenseVisual(0, -27.5, 2, DEFENSE_KIND.BARRICADE);
    */
-  public syncDefenseVisual(slotIndex: number, x: number, level: number): void {
+  public syncDefenseVisual(
+    slotIndex: number,
+    x: number,
+    level: number,
+    kind: number = DEFENSE_KIND.TURRET,
+  ): void {
     this.defenseVisuals.get(slotIndex)?.root.dispose(false, false);
     this.defenseVisuals.delete(slotIndex);
     if (level <= 0) return;
-    const model = this.assembly.assemble(this.blueprints.getPropBlueprint('defense_turret'), `defense-slot-${slotIndex}`);
+    const propKind = kind === DEFENSE_KIND.BARRICADE ? 'defense_barricade' : 'defense_turret';
+    const model = this.assembly.assemble(this.blueprints.getPropBlueprint(propKind), `defense-slot-${slotIndex}`);
     model.root.position.set(x, 0.24, 1.55);
-    model.root.scaling.setAll(level >= 2 ? 1.2 : 1);
+    const tierScale = level >= 3 ? 1.34 : level >= 2 ? 1.18 : 1;
+    model.root.scaling.setAll(tierScale);
     model.root.rotation.y = x < 0 ? Math.PI : 0;
     this.lighting.addShadowCasters(model.getMeshes());
     this.defenseVisuals.set(slotIndex, model);
   }
 
   /**
-   * Updates Defender (`bram`) road patrol X coordinate during night combat.
+   * Updates Defender (`bram`) road patrol X coordinate while monsters are present.
    *
    * @param x Active road X coordinate, or `null` to return beside his watchtower.
    * @throws Error Never thrown.
@@ -316,6 +325,18 @@ export class IslandEnvironment {
    */
   public setDefenderPatrolX(x: number | null): void {
     this.npcByRole.get('defender')?.setPatrolX(x);
+  }
+
+  /**
+   * Updates Engineer (`pip`) road X coordinate during workshop construction trips.
+   *
+   * @param x Active road X coordinate, or `null` to return to his workshop porch.
+   * @throws Error Never thrown.
+   * @example
+   * env.setEngineerPatrolX(-27.5);
+   */
+  public setEngineerPatrolX(x: number | null): void {
+    this.npcByRole.get('engineer')?.setPatrolX(x);
   }
 
   /**

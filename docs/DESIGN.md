@@ -80,15 +80,24 @@ Hanging out with a villager smoothly zooms the 3/4 camera into their open-front 
   - Canonical grid unit `1 tile = 2.5m` (`gridToWorld` / `worldToGrid`) aligning house footprints (`~2 tiles`), defense plinths (`±8, ±11 tiles`), speeds (`tiles/s`), and combat ranges (`tiles`).
   - Live runtime `BalanceSheet` + toggleable **Balance Sheet Drawer** (`⚙` HUD button or `F2`/`~`) with sliders, CSV/JSON spreadsheet import/export, and thin-instanced 1-tile road ruler markers.
   - Monster-driven Defender AI: Bram (and defenders) patrol and fight whenever living enemies exist regardless of day/night solar phase, returning to porch rest only once all monsters are defeated.
-- **G4: Dual-Choice Defense Plinths (Barricade vs Turret)**
-  - Choose between high-HP stalling **Barricades** and ranged **Turrets** on plinths (`±20`, `±26`) with visual damage/tier states.
-- **G5: Villager Mini-Shops**
-  - Expand all 4 cutaway dollhouse interiors into themed mini-shops (**Pip** engineering mods, **Sage** heals & flora buffs, **Bram** auto-shoot & combat upgrades, **Milo** barter & loot charms) unlocked via Bond tiers.
+- **G4 (Done): Dual-Choice Defense Plinths (Barricade vs Turret)**
+  - Choose between high-HP stalling **Barricades** (Lv 2 **Thorns**, Lv 3 **Rune-Pulse Knockback & Dawn Auto-Heal**) and ranged **Turrets** (Lv 2 **Rapid Bolts**, Lv 3 **Smart Arcane Coil** with Brute-priority + AoE chain splash) on plinths (`±8`, `±11` tiles), with full tier visuals and salvage refunds.
+- **G5 (In Progress — Pip Complete): Villager Mini-Shops**
+  - **Pip's Engineering Workshop (Done):** Pip's Dollhouse Bond (`Lv 1 → Lv 3`) serves as his **Research Level**, unlocking Lv 2 Reinforced and Lv 3 Smart defense blueprints commissioned directly from his cutaway card while Pip physically walks out along the road to wrench-build plinths and autonomously repair damaged walls/turrets when safe.
+  - Expand remaining 3 cutaway dollhouse interiors (**Sage** heals & flora buffs, **Bram** combat upgrades, **Milo** barter & loot charms) unlocked via Bond tiers.
 - **G6: Frontier Gloom Mist Risk/Reward**
   - Gloom Mist drag past `leftBorderX`/`rightBorderX` countered by purifying blooms or Sage's tonic, rewarding deep frontier mining/shards.
 
+### Assets Refinement Pass (A1–A7)
+- **A1: Stylized Shaders & Surface Look-Dev** — Custom clay/wood half-Lambert + Fresnel rim lighting, animated teal water & shoreline foam waves, warm amber interior glow vs. neon-magenta corruption emissives, and depth-tinted sky/fog.
+- **A2: Hero & Villager Silhouettes** — Chibi miniature proportions, expressive eyes/faces, oversized readable hats & role tools (Explorer bow/satchel, Pip goggles/wrench, Sage flower-hat/watering can, Bram helm/spear, Milo beret/coin pouch) tuned for 3/4 portrait readability.
+- **A3: Gloom Monster Cast & Visual Telegraphing** — Distinct silhouettes for Gloom Sprite (floating wisp-imp), Rusher (hunched jagged sprinter), and Brute (hulking crystal-backed golem) with glowing neon-violet cracks, eyes, and crisp hit-flash reactions.
+- **A4: Cutaway Dollhouses & Living Interiors** — Timber framing, pitched shingled roofs, warm glowing lanterns, window boxes, chimney smoke puffs, and progressive interior props unlocked via Bond tiers.
+- **A5: Defense Structures & Tier Evolution (Lv 1 → Lv 3)** — Distinct visual progression for Barricades (timber → spiked stone bastion → glowing rune-pulse wall) and Turrets (wooden bolt tower → twin-spring stone tower → floating arcane crystal coil), plus visible damage states.
+- **A6: Layered Island Background, Flora & Diorama Framing** — Parallax background islets, stylized low-poly clouds, shoreline rocks & seafoam edge, grass tufts, wind-swaying trees/blooms, and dramatic frontier corruption monoliths + mist wall.
+- **A7: Optional `.glb` Swap Pipeline & Budget Verification** — Drop-in `.glb` models via `GltfPartProvider` with palette harmonizer, procedural fallback, and thin-instance/draw-call budget verification.
+
 ### Subsequent Polish Passes
-- **Assets Review Pass:** Modular silhouette clarity, cutaway room props, and optional `.glb` swap pass.
 - **Music & Audio Review Pass:** Dynamic day/night adaptive soundtrack layering and richer Patapon battle percussion.
 - **Systems Review Pass:** Progression pacing, save/persistence, and performance telemetry.
 - Enemies types and designs (propose and review)

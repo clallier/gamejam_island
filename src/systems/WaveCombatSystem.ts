@@ -207,6 +207,21 @@ export class WaveCombatSystem {
   }
 
   /**
+   * Checks whether any living enemy is within `radius` meters of world X `x`.
+   *
+   * @param x World X probe center (e.g. a damaged defense plinth).
+   * @param radius Maximum horizontal distance considered unsafe.
+   * @returns `true` if a living enemy lies within `radius` of `x`.
+   * @throws Error Never thrown.
+   * @example
+   * if (!combat.hasEnemyNear(-20, 5)) dispatchEngineerRepair();
+   */
+  public hasEnemyNear(x: number, radius: number): boolean {
+    if (!Number.isFinite(x) || !Number.isFinite(radius) || radius < 0) return false;
+    return this._findNearestLivingEnemy(x, radius) !== -1;
+  }
+
+  /**
    * Returns total enemies scheduled for night wave `dayNumber`.
    *
    * @param dayNumber 1-based day index.
@@ -400,14 +415,30 @@ export class WaveCombatSystem {
     }
     const profile = this._enemyCombatProfile(Enemy.kind[enemyEid] ?? ENEMY_KIND.GLOOM_SPRITE);
     Enemy.attackCooldown[enemyEid] = profile.cooldown;
+    const defKind = Defense.kind[defEid] ?? DEFENSE_KIND.EMPTY;
+    const defLevel = Defense.level[defEid] ?? 1;
     const nextHp = (Defense.hp[defEid] ?? 0) - profile.damage;
     Defense.hp[defEid] = Math.max(0, nextHp);
-    if (nextHp > 0) return false;
+    if (defKind === DEFENSE_KIND.BARRICADE && defLevel >= 2) this._applyBarricadeThorns(enemyEid, defEid, defLevel);
+    return nextHp <= 0 ? this._clearDestroyedDefense(defEid, Defense) : false;
+  }
+
+  private _clearDestroyedDefense(
+    defEid: number,
+    Defense: { readonly kind: Uint8Array; readonly level: Uint8Array; readonly maxHp: Float32Array; readonly fireCooldown: Float32Array },
+  ): true {
     Defense.kind[defEid] = DEFENSE_KIND.EMPTY;
     Defense.level[defEid] = 0;
     Defense.maxHp[defEid] = 0;
     Defense.fireCooldown[defEid] = 0;
     return true;
+  }
+
+  private _applyBarricadeThorns(enemyEid: number, defEid: number, level: number): void {
+    const thorns = this.balance.get('barricadeThornsDamage');
+    const pulse = level >= 3 ? this.balance.getWorld('barricadePulseKnockbackTiles') : 0;
+    const defX = this.ecs.getComponents().Position.x[defEid] ?? 0;
+    if (thorns > 0 || pulse > 0) this._damageEnemy(enemyEid, thorns, defX, pulse);
   }
 
   private _attackHeart(
@@ -448,13 +479,51 @@ export class WaveCombatSystem {
     Defense: { readonly level: Uint8Array; readonly fireCooldown: Float32Array },
     shots: CombatShotEvent[],
   ): void {
-    const enemyEid = this._findNearestLivingEnemy(fromX, range);
+    const level = Defense.level[defEid] ?? 1;
+    const enemyEid = level >= 3 ? this._findSmartTurretTarget(fromX, range) : this._findNearestLivingEnemy(fromX, range);
     if (enemyEid === -1) return;
     this.ecs.setTurretTarget(defEid, enemyEid);
-    const dmg = this.balance.get('turretDamage') * ((Defense.level[defEid] ?? 1) >= 2 ? 1.5 : 1);
+    const dmg = this.balance.get('turretDamage') * (level >= 3 ? 1.75 : level >= 2 ? 1.5 : 1);
     this._damageEnemy(enemyEid, dmg, fromX, TURRET_SHOT_KNOCKBACK);
     Defense.fireCooldown[defEid] = this.balance.get('turretCooldownSec');
-    shots.push({ fromX, toX: this.ecs.getComponents().Position.x[enemyEid] ?? fromX, source: 'turret' });
+    const primaryX = this.ecs.getComponents().Position.x[enemyEid] ?? fromX;
+    shots.push({ fromX, toX: primaryX, source: 'turret' });
+    if (level >= 3) this._chainSmartTurretSplash(enemyEid, primaryX, Math.round(dmg * 0.6), shots);
+  }
+
+  private _findSmartTurretTarget(originX: number, maxRange: number): number {
+    const { Position, Enemy } = this.ecs.getComponents();
+    let bestBrute = -1;
+    let bestDist = maxRange;
+    for (const eid of this.ecs.queryEnemies()) {
+      if (!this.ecs.isEntityAlive(eid) || (Enemy.hp[eid] ?? 0) <= 0) continue;
+      if (Enemy.kind[eid] !== ENEMY_KIND.GLOOM_BRUTE) continue;
+      const dist = Math.abs((Position.x[eid] ?? 0) - originX);
+      if (dist <= bestDist) {
+        bestDist = dist;
+        bestBrute = eid;
+      }
+    }
+    return bestBrute !== -1 ? bestBrute : this._findNearestLivingEnemy(originX, maxRange);
+  }
+
+  private _chainSmartTurretSplash(
+    primaryEid: number,
+    primaryX: number,
+    splashDmg: number,
+    shots: CombatShotEvent[],
+  ): void {
+    const { Position, Enemy } = this.ecs.getComponents();
+    const splashRadius = this.balance.getWorld('smartTurretSplashTiles');
+    let hits = 0;
+    for (const eid of this.ecs.queryEnemies()) {
+      if (hits >= 2) break;
+      if (eid === primaryEid || !this.ecs.isEntityAlive(eid) || (Enemy.hp[eid] ?? 0) <= 0) continue;
+      if (Math.abs((Position.x[eid] ?? 0) - primaryX) > splashRadius) continue;
+      this._damageEnemy(eid, splashDmg, primaryX, TURRET_SHOT_KNOCKBACK * 0.5);
+      shots.push({ fromX: primaryX, toX: Position.x[eid] ?? primaryX, source: 'turret' });
+      hits += 1;
+    }
   }
 
   private _stepPlayerAutoShoot(
@@ -482,7 +551,7 @@ export class WaveCombatSystem {
     Enemy.hp[enemyEid] = nextHp;
     Enemy.hitFlash[enemyEid] = ENEMY_HIT_FLASH_SECONDS;
     const enemyX = Position.x[enemyEid] ?? originX;
-    const pushDir = enemyX >= originX ? 1 : -1;
+    const pushDir = enemyX === originX ? (Enemy.side[enemyEid] || 1) : enemyX > originX ? 1 : -1;
     const pushScale = Enemy.kind[enemyEid] === ENEMY_KIND.GLOOM_BRUTE ? 0.25 : 1;
     Position.x[enemyEid] = enemyX + pushDir * safeKnockback * pushScale;
     return nextHp <= 0;

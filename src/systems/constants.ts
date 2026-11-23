@@ -56,8 +56,8 @@ export const VILLAGER_CONFIGS: Record<NpcRoleId, VillagerRoleConfig> = {
     giftCost: { wood: 2 },
     giftLabel: '🪵2',
     giftXp: 25,
-    perkLv2Label: 'Lv2: +1 Harvest Drop',
-    perkLv3Label: 'Lv3: +1 Harvest & +25% Turrets',
+    perkLv2Label: 'Research Lv2: Reinforced Walls & Turrets (+1 Drop)',
+    perkLv3Label: 'Research Lv3: Smart Coil & Rune Wall (+25% Fire)',
     furnitureTiers: [
       { partId: 'furniture_tool_chest', paletteKey: 'woodWarm', cost: { wood: 3, stone: 1 }, label: 'Tool Chest (🪵3 🪨1)' },
       { partId: 'furniture_hearth_stove', paletteKey: 'amberGlow', cost: { wood: 4, stone: 2 }, label: 'Hearth Stove (🪵4 🪨2)' },
@@ -107,11 +107,17 @@ export const ENEMY_BREACH_BORDER_PULL = 2.0;
 
 export const TURRET_BUILD_COST: Partial<Record<ResourceKey, number>> = { wood: 3, stone: 2 };
 export const TURRET_UPGRADE_COST: Partial<Record<ResourceKey, number>> = { wood: 2, stone: 2, shards: 1 };
+export const TURRET_UPGRADE_LV3_COST: Partial<Record<ResourceKey, number>> = { wood: 2, stone: 3, shards: 2 };
 export const TURRET_REPAIR_COST: Partial<Record<ResourceKey, number>> = { wood: 1 };
 export const TURRET_RANGE = gridToWorld(BALANCE_DEFAULTS.turretRangeTiles);
 export const TURRET_BASE_COOLDOWN = BALANCE_DEFAULTS.turretCooldownSec;
 export const TURRET_BASE_DAMAGE = BALANCE_DEFAULTS.turretDamage;
 export const TURRET_MAX_HP = 55;
+export const BARRICADE_BUILD_COST: Partial<Record<ResourceKey, number>> = { wood: 2, stone: 2 };
+export const BARRICADE_UPGRADE_LV2_COST: Partial<Record<ResourceKey, number>> = { wood: 2, stone: 3 };
+export const BARRICADE_UPGRADE_LV3_COST: Partial<Record<ResourceKey, number>> = { stone: 3, shards: 2 };
+export const DEFENSE_SALVAGE_REFUND: Partial<Record<ResourceKey, number>> = { wood: 1, stone: 1 };
+export const BARRICADE_MAX_HP = BALANCE_DEFAULTS.barricadeBaseHp;
 
 export const ENEMY_SPRITE_HP = BALANCE_DEFAULTS.spriteHp;
 export const ENEMY_SPRITE_SPEED = gridToWorld(BALANCE_DEFAULTS.spriteSpeedTiles);

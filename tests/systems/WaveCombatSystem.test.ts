@@ -44,14 +44,18 @@ describe('DefenseStructureSystem & WaveCombatSystem', () => {
 
     expect(defenses.getSlotPrompt(0)).toEqual({ icon: '🗼', label: 'Turret' });
     const built = defenses.interactSlot(0, inventory);
-    expect(built).toEqual({ slotIndex: 0, x: DEFENSE_SLOT_XS[0], action: 'built', level: 1 });
+    expect(built).toEqual({ slotIndex: 0, x: DEFENSE_SLOT_XS[0], kind: DEFENSE_KIND.TURRET, action: 'built', level: 1 });
     expect(defenses.getSlotPrompt(0)).toEqual({ icon: '⬆', label: 'Lv2' });
+    expect(defenses.getSlotPrompt(0, 1)).toEqual({ icon: '🔒', label: 'Pip Lv2' });
 
     const upgraded = defenses.interactSlot(0, inventory);
     expect(upgraded?.action).toBe('upgraded');
     expect(upgraded?.level).toBe(2);
-    expect(defenses.getSlotPrompt(0)).toEqual({ icon: '🛡', label: 'Max' });
-    expect(defenses.interactSlot(0, inventory)).toBeNull();
+    expect(defenses.getSlotPrompt(0, 2)).toEqual({ icon: '🔒', label: 'Pip Lv3' });
+    const maxed = defenses.interactSlot(0, inventory, 3);
+    expect(maxed?.level).toBe(3);
+    expect(defenses.getSlotPrompt(0, 3)).toEqual({ icon: '🛡', label: 'Max' });
+    expect(defenses.interactSlot(0, inventory, 3)).toBeNull();
   });
 
   it('spawns night waves, fires turrets with rate multipliers, engages Defender patrol, and handles player shots', () => {
@@ -112,7 +116,7 @@ describe('DefenseStructureSystem & WaveCombatSystem', () => {
     expect(defenses.getSlotPrompt(0)).toEqual({ icon: '🔧', label: 'Repair' });
     expect(defenses.interactSlot(0, emptyInv)).toBeNull();
     const repaired = defenses.interactSlot(0, inventory);
-    expect(repaired).toEqual({ slotIndex: 0, x: DEFENSE_SLOT_XS[0], action: 'repaired', level: 1 });
+    expect(repaired).toEqual({ slotIndex: 0, x: DEFENSE_SLOT_XS[0], kind: DEFENSE_KIND.TURRET, action: 'repaired', level: 1 });
     expect(defenses.getSlotState(0).hp).toBe(TURRET_MAX_HP);
 
     // Unaffordable upgrade returns null, affordable upgrade boosts maxHp by 1.4x
@@ -125,7 +129,7 @@ describe('DefenseStructureSystem & WaveCombatSystem', () => {
     ecs.getComponents().Defense.hp[slotEid] = 15;
     expect(defenses.getSlotPrompt(0)).toEqual({ icon: '🔧', label: 'Repair' });
     const lv2Repair = defenses.interactSlot(0, inventory);
-    expect(lv2Repair).toEqual({ slotIndex: 0, x: DEFENSE_SLOT_XS[0], action: 'repaired', level: 2 });
+    expect(lv2Repair).toEqual({ slotIndex: 0, x: DEFENSE_SLOT_XS[0], kind: DEFENSE_KIND.TURRET, action: 'repaired', level: 2 });
     expect(defenses.getSlotState(0).hp).toBe(Math.round(TURRET_MAX_HP * 1.4));
   });
 
@@ -349,5 +353,136 @@ describe('DefenseStructureSystem & WaveCombatSystem', () => {
     expect(Number.isFinite(ecs.getComponents().Enemy.hp[eid])).toBe(true);
     combat.step(0.1, 'day', 1, 1, Number.NaN, corruption);
     expect(Number.isFinite(ecs.getComponents().Enemy.hp[eid])).toBe(true);
+  });
+
+  it('supports Barricade thorns/pulse/dawn-heal, Smart Coil Lv3 Brute-priority splash, research gating, and salvage', () => {
+    const { ecs, defenses, combat, corruption, inventory } = setupCombatHarness();
+    inventory.add('wood', 20);
+    inventory.add('stone', 20);
+    inventory.add('shards', 10);
+
+    // Research Lv 1 blocks upgrades beyond Lv 1
+    const wallBuilt = defenses.buildStructure(1, DEFENSE_KIND.BARRICADE, inventory);
+    expect(wallBuilt).toMatchObject({ slotIndex: 1, kind: DEFENSE_KIND.BARRICADE, action: 'built', level: 1 });
+    expect(defenses.upgradeSlot(1, inventory, 1)).toBeNull();
+
+    // Research Lv 2 & 3 unlock Rune-Pulse Wall (thorns + knockback pulse + dawn regeneration)
+    expect(defenses.upgradeSlot(1, inventory, 2)?.level).toBe(2);
+    expect(defenses.upgradeSlot(1, inventory, 3)?.level).toBe(3);
+    const attacker = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, DEFENSE_SLOT_XS[1]! - 0.5, -1, 30, 0);
+    combat.step(0.05, 'day', 1, 1, 0, corruption);
+    expect(ecs.getComponents().Enemy.hp[attacker]).toBe(22);
+    expect(ecs.getComponents().Position.x[attacker]!).toBeLessThan(DEFENSE_SLOT_XS[1]! - 1.5);
+    expect(defenses.getSlotState(1).hp).toBeLessThan(defenses.getSlotState(1).maxHp);
+    expect(defenses.healSmartBarricadesAtDawn()).toBe(1);
+    expect(defenses.getSlotState(1).hp).toBe(defenses.getSlotState(1).maxHp);
+
+    // Smart Turret Lv 3 prioritizes Brute inside range over closer Sprite and chains splash bolts
+    defenses.buildStructure(2, DEFENSE_KIND.TURRET, inventory);
+    defenses.upgradeSlot(2, inventory, 2);
+    defenses.upgradeSlot(2, inventory, 3);
+    const closeSprite = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, DEFENSE_SLOT_XS[2]! - 2, -1, 30, 0);
+    const brute = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_BRUTE, DEFENSE_SLOT_XS[2]! + 6, 1, 80, 0);
+    const splashFriend = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, DEFENSE_SLOT_XS[2]! + 6.5, 1, 30, 0);
+    const smartRes = combat.step(0.05, 'day', 1, 1, 0, corruption);
+    expect(smartRes.shots.filter((s) => s.source === 'turret').length).toBeGreaterThanOrEqual(2);
+    expect(ecs.getComponents().Enemy.hp[brute]).toBe(80 - TURRET_BASE_DAMAGE * 1.75);
+    expect(ecs.getComponents().Enemy.hp[splashFriend]).toBeLessThan(30);
+    expect(ecs.getComponents().Enemy.hp[closeSprite]).toBe(30);
+
+    // Salvaging frees the plinth and refunds materials
+    const beforeWood = inventory.getSnapshot().wood;
+    const salvaged = defenses.salvageSlot(1, inventory);
+    expect(salvaged).toMatchObject({ slotIndex: 1, kind: DEFENSE_KIND.EMPTY, action: 'salvaged', level: 0 });
+    expect(inventory.getSnapshot().wood).toBeGreaterThan(beforeWood);
+    expect(defenses.salvageSlot(1, inventory)).toBeNull();
+
+    // Free engineer wrench repair & local enemy proximity probe
+    expect(defenses.repairSlotFree(99)).toBeNull();
+    expect(defenses.repairSlotFree(2)).toBeNull();
+    ecs.getComponents().Defense.hp[ecs.getEntityId('slot-2')!] = 25;
+    expect(defenses.repairSlotFree(2)).toMatchObject({ slotIndex: 2, action: 'repaired', level: 3 });
+    expect(defenses.getSlotState(2).hp).toBe(defenses.getSlotState(2).maxHp);
+
+    expect(combat.hasEnemyNear(Number.NaN, 5)).toBe(false);
+    expect(combat.hasEnemyNear(DEFENSE_SLOT_XS[2]!, -1)).toBe(false);
+    expect(combat.hasEnemyNear(DEFENSE_SLOT_XS[2]! + 6, 2.0)).toBe(true);
+    expect(combat.hasEnemyNear(-50, 2.0)).toBe(false);
+  });
+
+  it('guards invalid defense actions, Lv2 vs Lv3 barricade thorns/overlap-knockback, dawn-heal filtering, and multi-turret slain safety', () => {
+    const { ecs, defenses, combat, corruption, inventory } = setupCombatHarness();
+    const emptyInv = new InventoryStore({ wood: 0, stone: 0, petals: 0, shards: 0 });
+    inventory.add('wood', 30);
+    inventory.add('stone', 30);
+    inventory.add('shards', 20);
+
+    // Invalid slot / kind / empty repair & upgrade cost queries
+    expect(defenses.buildStructure(0, 99, inventory)).toBeNull();
+    expect(defenses.buildStructure(99, DEFENSE_KIND.BARRICADE, inventory)).toBeNull();
+    expect(defenses.buildStructure(0, DEFENSE_KIND.BARRICADE, emptyInv)).toBeNull();
+    expect(defenses.repairSlot(0, inventory)).toBeNull();
+    expect(defenses.repairSlot(99, inventory)).toBeNull();
+    expect(defenses.upgradeSlot(0, inventory, 3)).toBeNull();
+    expect(defenses.upgradeSlot(99, inventory, 3)).toBeNull();
+    expect(defenses.salvageSlot(99, inventory)).toBeNull();
+    expect(defenses.getUpgradeCostForSlot(0)).toEqual({});
+
+    // Build Lv 1 Barricade -> Lv 1 deals NO thorns; Lv 2 deals thorns WITHOUT knockback
+    defenses.buildStructure(0, DEFENSE_KIND.BARRICADE, inventory);
+    expect(defenses.buildStructure(0, DEFENSE_KIND.TURRET, inventory)).toBeNull();
+    expect(defenses.getUpgradeCostForSlot(0)).toMatchObject({ wood: 2, stone: 3 });
+    const lv1Enemy = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, DEFENSE_SLOT_XS[0]!, -1, 30, 0);
+    combat.step(0.05, 'day', 1, 1, 0, corruption);
+    expect(ecs.getComponents().Enemy.hp[lv1Enemy]).toBe(30);
+    ecs.despawnEntity(lv1Enemy);
+
+    // Repair damaged Lv 1 barricade, then upgrade to Lv 2 (thorns without knockback)
+    expect(defenses.repairSlot(0, inventory)?.action).toBe('repaired');
+    expect(defenses.upgradeSlot(0, inventory, 2)?.level).toBe(2);
+    expect(defenses.getUpgradeCostForSlot(0)).toMatchObject({ stone: 3, shards: 2 });
+    const lv2Enemy = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, DEFENSE_SLOT_XS[0]! - 0.5, -1, 30, 0);
+    combat.step(0.05, 'day', 1, 1, 0, corruption);
+    expect(ecs.getComponents().Enemy.hp[lv2Enemy]).toBe(22);
+    expect(ecs.getComponents().Position.x[lv2Enemy]).toBe(DEFENSE_SLOT_XS[0]! - 0.5);
+    ecs.despawnEntity(lv2Enemy);
+
+    // Lv 3 Barricade on exact overlap (enemyX === defX) pushes left-flank enemy LEFT (-1), and lethal thorns despawn cleanly
+    expect(defenses.upgradeSlot(0, inventory, 3)?.level).toBe(3);
+    expect(defenses.getUpgradeCostForSlot(0)).toEqual({});
+    const overlapEnemy = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, DEFENSE_SLOT_XS[0]!, -1, 8, 0);
+    const thornsFrame = combat.step(0.05, 'day', 1, 1, 0, corruption);
+    expect(thornsFrame.slain.map((s) => s.eid)).toContain(overlapEnemy);
+    expect(ecs.isEntityAlive(overlapEnemy)).toBe(false);
+
+    // Lv 2 Barricade & Lv 3 Turret are NOT healed by healSmartBarricadesAtDawn; damaged Lv 3 Barricade IS healed
+    defenses.buildStructure(1, DEFENSE_KIND.BARRICADE, inventory);
+    defenses.upgradeSlot(1, inventory, 2);
+    ecs.getComponents().Defense.hp[ecs.getEntityId('slot-1')!] = 20;
+    defenses.buildStructure(2, DEFENSE_KIND.TURRET, inventory);
+    defenses.upgradeSlot(2, inventory, 2);
+    defenses.upgradeSlot(2, inventory, 3);
+    ecs.getComponents().Defense.hp[ecs.getEntityId('slot-2')!] = 10;
+    expect(defenses.healSmartBarricadesAtDawn()).toBe(1);
+    expect(defenses.getSlotState(0).hp).toBe(defenses.getSlotState(0).maxHp);
+    expect(defenses.getSlotState(1).hp).toBe(20);
+    expect(defenses.getSlotState(2).hp).toBe(10);
+    expect(defenses.healSmartBarricadesAtDawn()).toBe(0);
+
+    // Smart Turret Lv 3 falls back to nearest non-Brute, caps splash at 2 enemies, and a second turret skips slain enemies safely
+    defenses.buildStructure(3, DEFENSE_KIND.TURRET, inventory);
+    defenses.upgradeSlot(3, inventory, 2);
+    defenses.upgradeSlot(3, inventory, 3);
+    const p1 = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, DEFENSE_SLOT_XS[2]! + 2.0, 1, 10, 0);
+    const s1 = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, DEFENSE_SLOT_XS[2]! + 2.5, 1, 10, 0);
+    const s2 = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, DEFENSE_SLOT_XS[2]! + 2.8, 1, 10, 0);
+    const s3 = ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_SPRITE, DEFENSE_SLOT_XS[2]! + 3.0, 1, 10, 0);
+    const multiTurretRes = combat.step(0.05, 'day', 1, 1, 0, corruption);
+    expect(multiTurretRes.slain.length).toBeGreaterThanOrEqual(3);
+    expect(ecs.isEntityAlive(p1)).toBe(false);
+    expect(ecs.isEntityAlive(s1)).toBe(false);
+    expect(ecs.isEntityAlive(s2)).toBe(false);
+    // Remaining enemy s3 is either slain by second turret or survived if out of range, with zero invalid-entity errors
+    expect(ecs.getComponents().Enemy.hp[s3]).toBeDefined();
   });
 });

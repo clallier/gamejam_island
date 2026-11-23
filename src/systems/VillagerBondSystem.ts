@@ -184,6 +184,18 @@ export class VillagerBondSystem {
   }
 
   /**
+   * Returns Pip's (`engineer`) current bond tier acting as his defense research level (`1..3`).
+   *
+   * @returns Engineer bond level (`1`, `2`, or `3`).
+   * @throws Error Never thrown.
+   * @example
+   * const researchLv = bonds.getEngineerResearchLevel();
+   */
+  public getEngineerResearchLevel(): number {
+    return this._getLevel('engineer');
+  }
+
+  /**
    * Returns bonus drop units per harvested resource node unlocked by Pip (`engineer` Lv 2+).
    *
    * @returns Extra loot drop units (`1` at Engineer Lv 2+, else `0`).

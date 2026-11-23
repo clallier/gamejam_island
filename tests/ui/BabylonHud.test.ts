@@ -320,4 +320,80 @@ describe('BabylonHud (@babylonjs/gui)', () => {
     hud.setMuted(false);
     expect(muteLabel.text).toBe('🔊');
   });
+
+  it('renders Pip Workshop defense selector and emits build, upgrade, repair, and salvage actions', () => {
+    const { hud, input } = createHudHarness();
+    const engineerPlot = DOLLHOUSE_PLOTS[0]!;
+    const onWorkshopAction = vi.fn();
+    hud.bindControls(input, vi.fn(), vi.fn(), { onWorkshopAction });
+
+    hud.updateInteractionContext(
+      { type: 'dollhouse', plot: engineerPlot, icon: '🏠', label: engineerPlot.npcName },
+      engineerPlot,
+      false,
+      null,
+      {
+        researchLevel: 2,
+        slots: [
+          { slotIndex: 0, x: -27.5, kind: 0, level: 0, hp: 0, maxHp: 0 },
+          { slotIndex: 1, x: -20, kind: 2, level: 1, hp: 110, maxHp: 110 },
+          { slotIndex: 2, x: 20, kind: 1, level: 2, hp: 40, maxHp: 77 },
+          { slotIndex: 3, x: 27.5, kind: 1, level: 2, hp: 77, maxHp: 77 },
+        ],
+        canAffordBarricade: true,
+        canAffordTurret: true,
+        canAffordRepair: true,
+        canAffordUpgradeBySlot: [false, true, true, true],
+      },
+    );
+
+    expect((hud.getControlByName('workshop-research-label') as TextBlock).text).toContain('Lv 2/3');
+    (hud.getControlByName('btn-workshop-act-0') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect(onWorkshopAction).toHaveBeenCalledWith(0, 'barricade');
+
+    (hud.getControlByName('btn-workshop-slot-1') as Button).onPointerClickObservable.notifyObservers(null as never);
+    (hud.getControlByName('btn-workshop-act-0') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect(onWorkshopAction).toHaveBeenCalledWith(1, 'upgrade');
+
+    (hud.getControlByName('btn-workshop-slot-2') as Button).onPointerClickObservable.notifyObservers(null as never);
+    (hud.getControlByName('btn-workshop-act-0') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect(onWorkshopAction).toHaveBeenCalledWith(2, 'repair');
+
+    (hud.getControlByName('btn-workshop-slot-3') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect((hud.getControlByName('btn-workshop-act-0-label') as TextBlock).text).toBe('🔒 Pip Lv3');
+    (hud.getControlByName('btn-workshop-act-1') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect(onWorkshopAction).toHaveBeenCalledWith(3, 'salvage');
+
+    // Lv 3 maxed slot shows disabled ★ Max Lv3 button; unaffordable empty slot disables Wall/Turret
+    hud.updateInteractionContext(
+      { type: 'dollhouse', plot: engineerPlot, icon: '🏠', label: engineerPlot.npcName },
+      engineerPlot,
+      false,
+      null,
+      {
+        researchLevel: Number.NaN,
+        slots: [
+          { slotIndex: 0, x: -27.5, kind: 0, level: 0, hp: 0, maxHp: 0 },
+          { slotIndex: 1, x: -20, kind: 2, level: 3, hp: 220, maxHp: 220 },
+        ],
+        canAffordBarricade: false,
+        canAffordTurret: false,
+        canAffordRepair: false,
+        canAffordUpgradeBySlot: [false, false],
+      },
+    );
+    expect((hud.getControlByName('workshop-research-label') as TextBlock).text).toContain('Basic Tech');
+    expect((hud.getControlByName('btn-workshop-act-0-label') as TextBlock).text).toBe('★ Max Lv3');
+    expect((hud.getControlByName('btn-workshop-act-0') as Button).isEnabled).toBe(false);
+    (hud.getControlByName('btn-workshop-slot-0') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect((hud.getControlByName('btn-workshop-act-0') as Button).isEnabled).toBe(false);
+    expect((hud.getControlByName('btn-workshop-act-1') as Button).isEnabled).toBe(false);
+
+    // Switching to another villager's dollhouse hides Workshop panel and shrinks card height back
+    const workshopCardHeight = hud.getControlByName('dollhouse-card')!.heightInPixels;
+    const medicPlot = DOLLHOUSE_PLOTS[1]!;
+    hud.updateInteractionContext({ type: 'dollhouse', plot: medicPlot, icon: '🏠', label: medicPlot.npcName }, medicPlot, false, null, null);
+    expect(hud.getControlByName('workshop-panel')!.isVisible).toBe(false);
+    expect(hud.getControlByName('dollhouse-card')!.heightInPixels).toBeLessThan(workshopCardHeight);
+  });
 });

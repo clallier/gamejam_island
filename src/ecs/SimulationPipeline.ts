@@ -43,6 +43,7 @@ export class SimulationPipeline {
   private readonly deps: SimulationPipelineDeps;
   private readonly ctx: SimulationFrameContext;
   private readonly pipeline: (ctx: SimulationFrameContext) => SimulationFrameContext;
+  private researchLevel = 2;
 
   /**
    * Builds a reusable bitECS `pipe` runner for per-frame simulation updates.
@@ -71,11 +72,13 @@ export class SimulationPipeline {
    * @param dt Clamped frame delta in seconds.
    * @param elapsedSeconds Total elapsed simulation time in seconds.
    * @param playerX Current player horizontal coordinate along the 1D strip.
+   * @param researchLevel Pip's current Bond / Engineering Research level (`1..3`).
    * @returns The reused `SimulationFrameContext` populated with target and collected loot.
    * @throws Error Propagates any error from injected collaborators.
    * @example const frame = sim.run(0.016, 12.4, -3.5);
    */
-  public run(dt: number, elapsedSeconds: number, playerX: number): SimulationFrameContext {
+  public run(dt: number, elapsedSeconds: number, playerX: number, researchLevel = 2): SimulationFrameContext {
+    this.researchLevel = researchLevel;
     this.ctx.dt = dt;
     this.ctx.elapsedSeconds = elapsedSeconds;
     this.ctx.playerX = playerX;
@@ -97,6 +100,7 @@ export class SimulationPipeline {
       this.deps.resources,
       this.deps.corruption,
       this.deps.defenses,
+      this.researchLevel,
     );
     return ctx;
   }

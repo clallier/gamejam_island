@@ -92,8 +92,9 @@ describe('GameApp (composition root)', () => {
       };
       ecs: {
         spawnEnemyEntity: (k: number, x: number, s: -1 | 1, hp: number, spd: number) => number;
+        despawnEntity: (eid: number) => void;
         getEntityId: (id: string) => number | undefined;
-        getComponents: () => { Defense: { hp: Float32Array } };
+        getComponents: () => { Defense: { hp: Float32Array; maxHp: Float32Array } };
       };
       timeCycle: { advance: (dt: number) => unknown; jumpToPhase: (p: 'day' | 'dusk' | 'night' | 'dawn') => unknown };
       bonds: { hangOut: (role: 'medic', inv: unknown) => unknown; giveGift: (role: 'medic', inv: unknown) => unknown };
@@ -147,27 +148,81 @@ describe('GameApp (composition root)', () => {
     expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Need 2 🌸 Petals');
 
     // Restore abundant resources for build/upgrade/bond/plant testing
-    internal.inventory.add('wood', snapshot.wood + 20);
-    internal.inventory.add('stone', snapshot.stone + 20);
+    internal.inventory.add('wood', snapshot.wood + 25);
+    internal.inventory.add('stone', snapshot.stone + 25);
     internal.inventory.add('petals', snapshot.petals + 20);
-    internal.inventory.add('shards', snapshot.shards + 20);
+    internal.inventory.add('shards', snapshot.shards + 25);
 
-    // Focus Engineer dollhouse, hang out, gift, furnish, and exit via close button
+    // Road build at slot 0 succeeds, and immediate Lv 2 upgrade is blocked until Pip reaches Bond Lv 2
+    internal.player.collider.position.x = slot0X;
+    internal.input.triggerTap('interact');
+    stepFrames(1);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Turret Built');
+    internal.input.triggerTap('interact');
+    stepFrames(1);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Need Pip Bond Lv 2');
+
+    // Focus Engineer dollhouse, hang out, gift, furnish, commission wall, upgrade, repair, salvage, and test failure toast
     internal.player.collider.position.x = engineerX;
     internal.input.triggerTap('interact');
     stepFrames(1);
     (internal.hud.getControlByName('btn-card-hangout') as Button).onPointerClickObservable.notifyObservers(null as never);
     (internal.hud.getControlByName('btn-card-gift') as Button).onPointerClickObservable.notifyObservers(null as never);
     (internal.hud.getControlByName('btn-card-furnish') as Button).onPointerClickObservable.notifyObservers(null as never);
+    (internal.hud.getControlByName('btn-workshop-slot-1') as Button).onPointerClickObservable.notifyObservers(null as never);
+    (internal.hud.getControlByName('btn-workshop-act-0') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Wall Built');
+    // Immediate same-frame click uses refreshed workshop actions (upgrade -> Lv 2) without stale state
+    (internal.hud.getControlByName('btn-workshop-act-0') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Wall Lv 2');
+    // Upgrade Pip to Lv 3, upgrade wall to Lv 3, damage it so dawn transition regenerates it, and test empty-resource workshop toast
+    for (let i = 0; i < 3; i++) (internal.hud.getControlByName('btn-card-gift') as Button).onPointerClickObservable.notifyObservers(null as never);
+    stepFrames(1);
+    (internal.hud.getControlByName('btn-workshop-act-0') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Wall Lv 3');
+    const slot1Eid = internal.ecs.getEntityId('slot-1')!;
+    internal.ecs.getComponents().Defense.hp[slot1Eid] = 40;
+    internal.timeCycle.jumpToPhase('dawn');
+    stepFrames(1);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Rune Walls Regenerated!');
+    internal.timeCycle.jumpToPhase('day');
+    stepFrames(1);
+    (internal.hud.getControlByName('btn-workshop-act-1') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Plinth Salvaged');
+    // Unaffordable workshop action emits failure toast
+    const preWorkshopInv = internal.inventory.getSnapshot();
+    internal.inventory.spend(preWorkshopInv);
+    (internal.hud.getControlByName('btn-workshop-act-0') as Button).onPointerClickObservable.notifyObservers(null as never);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Need Wood/Stone/Shards or Pip Lv');
+    internal.inventory.add('wood', preWorkshopInv.wood);
+    internal.inventory.add('stone', preWorkshopInv.stone);
+    internal.inventory.add('petals', preWorkshopInv.petals);
+    internal.inventory.add('shards', preWorkshopInv.shards);
     (internal.hud.getControlByName('btn-close-card') as Button).onPointerClickObservable.notifyObservers(null as never);
 
-    // Build and upgrade defense slot 0
+    // Upgrade defense slot 0 from Lv 1 -> Lv 2 -> Lv 3, and verify max-level interact toast
     internal.player.collider.position.x = slot0X;
     internal.input.triggerTap('interact');
     stepFrames(1);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Turret Lv 2');
     internal.input.triggerTap('interact');
     stepFrames(1);
-    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Turret Lv 2');
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Turret Lv 3');
+    internal.input.triggerTap('interact');
+    stepFrames(1);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Defense Max Lv 3');
+
+    // Pip waits when an enemy threatens a damaged turret, then walks out to repair it once safe
+    const slot0RepairEid = internal.ecs.getEntityId('slot-0')!;
+    const slot0MaxHp = internal.ecs.getComponents().Defense.maxHp[slot0RepairEid]!;
+    internal.ecs.getComponents().Defense.hp[slot0RepairEid] = 20;
+    const blockerEnemy = internal.ecs.spawnEnemyEntity(ENEMY_KIND.GLOOM_BRUTE, slot0X - 1.5, -1, 200, 0);
+    stepFrames(3);
+    expect(internal.ecs.getComponents().Defense.hp[slot0RepairEid]).toBeLessThan(slot0MaxHp);
+    internal.ecs.despawnEntity(blockerEnemy);
+    for (let i = 0; i < 140; i++) stepFrames(1);
+    expect(internal.ecs.getComponents().Defense.hp[slot0RepairEid]).toBe(slot0MaxHp);
+    expect((internal.hud.getControlByName('hud-toast-text') as TextBlock).text).toContain('Pip Repaired Turret!');
 
     // Harvest right pine tree (x=32, away from defense slots and mounds) to depletion, then plant at x=24
     internal.player.collider.position.x = 32;

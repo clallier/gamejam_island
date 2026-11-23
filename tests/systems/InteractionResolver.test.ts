@@ -84,11 +84,17 @@ describe('InteractionResolver (bitECS SoA)', () => {
     const slotTarget = resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses);
     expect(slotTarget).toMatchObject({ type: 'defense', slotIndex: 0, label: 'Turret' });
 
-    // Building and upgrading updates defense prompt through InteractionResolver
-    defenses.interactSlot(0, inventory);
-    expect(resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses)?.label).toBe('Lv2');
+    // Building and upgrading updates defense prompt through InteractionResolver with Pip Bond research gating
+    defenses.interactSlot(0, inventory, 1);
+    expect(resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses, 1)?.label).toBe('Pip Lv2');
+    expect(resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses, 2)?.label).toBe('Lv2');
+    defenses.interactSlot(0, inventory, 2);
+    expect(resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses, 2)?.label).toBe('Pip Lv3');
+    expect(resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses, 3)?.label).toBe('Lv3');
+    defenses.interactSlot(0, inventory, 3);
+    expect(resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses, 3)?.label).toBe('Max');
     ecs.getComponents().Defense.hp[ecs.getEntityId('slot-0')!] = 10;
-    expect(resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses)?.label).toBe('Repair');
+    expect(resolver.resolve(DEFENSE_SLOT_XS[0]!, ecs, strip, nodes, corruption, defenses, 1)?.label).toBe('Repair');
 
     // Equal-priority tie-break selects closer resource
     const closerResource = resolver.resolve(60.8, ecs, strip, nodes, corruption, defenses);

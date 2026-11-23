@@ -12,6 +12,7 @@ import { type DollhouseCardCallbacks, DollhouseCardView } from './DollhouseCardV
 import { HudLayout } from './HudLayout.ts';
 import { TopBarView } from './TopBarView.ts';
 import { TouchDockView } from './TouchDockView.ts';
+import type { WorkshopPanelSnapshot } from './WorkshopPanelView.ts';
 
 /**
  * Babylon.js 2D GUI HUD coordinator composing top status pills, responsive
@@ -172,18 +173,20 @@ export class BabylonHud {
    * @param focusedPlot Currently zoomed `DollhousePlot`, or `null`.
    * @param canPlant Whether a purifying flower can currently be planted.
    * @param focusedBond Optional live `VillagerBondSnapshot` for the focused plot.
+   * @param workshop Optional live `WorkshopPanelSnapshot` when visiting Pip's Workshop.
    * @throws Error Never thrown.
    * @example
-   * hud.updateInteractionContext(target, focused, true, focusedBond);
+   * hud.updateInteractionContext(target, focused, true, focusedBond, workshopSnap);
    */
   public updateInteractionContext(
     target: InteractionTarget | null,
     focusedPlot: DollhousePlot | null,
     canPlant: boolean,
     focusedBond: VillagerBondSnapshot | null = null,
+    workshop: WorkshopPanelSnapshot | null = null,
   ): void {
     this.dock.updateInteractionContext(target, focusedPlot, canPlant);
-    this.card.renderPlot(focusedPlot, focusedBond);
+    this.card.renderPlot(focusedPlot, focusedBond, workshop);
   }
 
   /**

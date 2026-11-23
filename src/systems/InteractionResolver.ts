@@ -32,7 +32,10 @@ export class InteractionResolver {
    * @param strip `IslandStrip` owning dollhouse definitions.
    * @param resources `ResourceNodeCatalog` owning resource node metadata.
    * @param corruption `CorruptionField` owning pollution mound metadata.
+   * @param defenses Optional `DefenseStructureSystem` resolving plinth action prompts.
+   * @param researchLevel Pip's current Bond / Engineering Research level (`1..3`).
    * @returns Resolved `InteractionTarget` or `null` when none are in range.
+   * @throws Error Never thrown during target resolution.
    * @example
    * const target = resolver.resolve(playerX, ecs, strip, nodes, corruption);
    */
@@ -43,13 +46,14 @@ export class InteractionResolver {
     resources: ResourceNodeCatalog,
     corruption: CorruptionField,
     defenses?: DefenseStructureSystem,
+    researchLevel = 2,
   ): InteractionTarget | null {
     const bestEid = this._findBestEntity(playerX, ecs);
     if (bestEid === -1) return null;
     const { Interactable } = ecs.getComponents();
     const kind = Interactable.kind[bestEid] ?? 0;
     const payloadIndex = Interactable.payloadIndex[bestEid] ?? 0;
-    return this._mapTarget(kind, payloadIndex, strip, resources, corruption, defenses);
+    return this._mapTarget(kind, payloadIndex, strip, resources, corruption, defenses, researchLevel);
   }
 
   private _findBestEntity(playerX: number, ecs: IslandEcsWorld): number {
@@ -81,17 +85,36 @@ export class InteractionResolver {
     resources: ResourceNodeCatalog,
     corruption: CorruptionField,
     defenses?: DefenseStructureSystem,
+    researchLevel = 2,
   ): InteractionTarget | null {
     if (kind === INTERACTABLE_KIND.DOLLHOUSE) {
       const plot = strip.getDollhousePlots()[index];
       return plot ? { type: 'dollhouse', plot, icon: '🏠', label: plot.npcName } : null;
     }
     if (kind === INTERACTABLE_KIND.DEFENSE_SLOT) {
-      const slotX = strip.getDefenseSlots()[index];
-      if (slotX === undefined) return null;
-      const prompt = defenses?.getSlotPrompt(index) ?? { icon: '🗼', label: 'Turret' };
-      return { type: 'defense', slotIndex: index, id: `slot-${index}`, x: slotX, ...prompt };
+      return this._mapDefenseTarget(index, strip, defenses, researchLevel);
     }
+    return this._mapWorldTarget(kind, index, resources, corruption);
+  }
+
+  private _mapDefenseTarget(
+    index: number,
+    strip: IslandStrip,
+    defenses?: DefenseStructureSystem,
+    researchLevel = 2,
+  ): InteractionTarget | null {
+    const slotX = strip.getDefenseSlots()[index];
+    if (slotX === undefined) return null;
+    const prompt = defenses?.getSlotPrompt(index, researchLevel) ?? { icon: '🗼', label: 'Turret' };
+    return { type: 'defense', slotIndex: index, id: `slot-${index}`, x: slotX, ...prompt };
+  }
+
+  private _mapWorldTarget(
+    kind: number,
+    index: number,
+    resources: ResourceNodeCatalog,
+    corruption: CorruptionField,
+  ): InteractionTarget | null {
     if (kind === INTERACTABLE_KIND.MOUND) {
       const mound = corruption.getMounds()[index];
       return mound && !mound.scrubbed ? { type: 'mound', id: mound.id, x: mound.x, icon: '✨', label: 'Scrub' } : null;

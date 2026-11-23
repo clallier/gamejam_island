@@ -8,6 +8,7 @@ import type { VillagerBondSnapshot } from '../systems/VillagerBondSystem.ts';
 import type { DollhousePlot } from '../world/constants.ts';
 import { HUD_THEME } from './constants.ts';
 import type { HudLayoutMetrics } from './HudLayout.ts';
+import { type WorkshopActionKind, type WorkshopPanelSnapshot, WorkshopPanelView } from './WorkshopPanelView.ts';
 
 /**
  * Callbacks emitted by interactive cutaway dollhouse card controls.
@@ -17,6 +18,7 @@ export interface DollhouseCardCallbacks {
   readonly onHangOut?: () => void;
   readonly onGift?: () => void;
   readonly onFurnish?: () => void;
+  readonly onWorkshopAction?: (slotIndex: number, action: WorkshopActionKind) => void;
 }
 
 interface ActionButtonSlot {
@@ -31,6 +33,7 @@ interface ActionButtonSlot {
 export class DollhouseCardView {
   private static readonly WORD_WRAP = 1;
   private static readonly CARD_HEIGHT = 172;
+  private static readonly WORKSHOP_CARD_HEIGHT = 264;
   private static readonly DISABLED_ALPHA = 0.45;
 
   private readonly card: Rectangle;
@@ -42,6 +45,7 @@ export class DollhouseCardView {
   private readonly hangOutBtn: ActionButtonSlot;
   private readonly giftBtn: ActionButtonSlot;
   private readonly furnishBtn: ActionButtonSlot;
+  private readonly workshop: WorkshopPanelView;
   private callbacks: DollhouseCardCallbacks = { onClose: () => undefined };
 
   /**
@@ -63,6 +67,7 @@ export class DollhouseCardView {
     this.hangOutBtn = this._createActionButton('btn-card-hangout', 'Hang Out', HUD_THEME.accentSage, () => this.callbacks.onHangOut?.());
     this.giftBtn = this._createActionButton('btn-card-gift', 'Gift', HUD_THEME.accentAmber, () => this.callbacks.onGift?.());
     this.furnishBtn = this._createActionButton('btn-card-furnish', 'Decorate', HUD_THEME.borderAccent, () => this.callbacks.onFurnish?.());
+    this.workshop = new WorkshopPanelView();
     this._mountChildren(header.row);
     adt.addControl(this.card);
   }
@@ -89,6 +94,7 @@ export class DollhouseCardView {
    */
   public setCallbacks(callbacks: DollhouseCardCallbacks): void {
     this.callbacks = callbacks;
+    this.workshop.setOnAction(callbacks.onWorkshopAction);
   }
 
   /**
@@ -108,6 +114,7 @@ export class DollhouseCardView {
       : Control.HORIZONTAL_ALIGNMENT_CENTER;
     this.card.leftInPixels = metrics.cardAlignRight ? -metrics.edgePadX : 0;
     this._applyTypography(metrics);
+    this.workshop.applyLayout(metrics);
     const btnWidth = Math.max(82, Math.floor((metrics.cardWidth - 44) / 3));
     for (const slot of [this.hangOutBtn, this.giftBtn, this.furnishBtn]) {
       slot.button.widthInPixels = btnWidth;
@@ -116,17 +123,23 @@ export class DollhouseCardView {
   }
 
   /**
-   * Shows and populates the card for `plot` and optional live `bond`, or hides when `null`.
+   * Shows and populates the card for `plot`, optional `bond`, and Pip `workshop` state.
    *
    * @param plot Focused `DollhousePlot`, or `null` when roaming.
    * @param bond Optional live `VillagerBondSnapshot`.
+   * @param workshop Optional `WorkshopPanelSnapshot` shown inside Pip's workshop.
    * @throws Error Never thrown.
    * @example
-   * card.renderPlot(focusedPlot, bondSnapshot);
+   * card.renderPlot(focusedPlot, bondSnapshot, workshopSnapshot);
    */
-  public renderPlot(plot: DollhousePlot | null, bond?: VillagerBondSnapshot | null): void {
+  public renderPlot(
+    plot: DollhousePlot | null,
+    bond?: VillagerBondSnapshot | null,
+    workshop?: WorkshopPanelSnapshot | null,
+  ): void {
     if (!plot) {
       this.card.isVisible = false;
+      this.workshop.render(null);
       return;
     }
     this.card.isVisible = true;
@@ -137,6 +150,15 @@ export class DollhouseCardView {
     this.perkText.text = bond ? bond.activePerkLabel : plot.perkTeaser;
     this.affinityText.text = `Affinity: ${plot.affinityLabel}`;
     this._renderActions(bond ?? null);
+    this._renderWorkshop(plot, workshop ?? null);
+  }
+
+  private _renderWorkshop(plot: DollhousePlot, workshop: WorkshopPanelSnapshot | null): void {
+    const activeWorkshop = plot.roleId === 'engineer' ? workshop : null;
+    this.card.heightInPixels = activeWorkshop
+      ? DollhouseCardView.WORKSHOP_CARD_HEIGHT
+      : DollhouseCardView.CARD_HEIGHT;
+    this.workshop.render(activeWorkshop);
   }
 
   private _mountChildren(headerRow: Rectangle): void {
@@ -145,6 +167,7 @@ export class DollhouseCardView {
     this.stack.addControl(this.perkText);
     this.stack.addControl(this.affinityText);
     this.stack.addControl(this._createActionsRow());
+    this.stack.addControl(this.workshop.getControl());
     this.card.addControl(this.stack);
   }
 

@@ -7,6 +7,7 @@ import { ProceduralPartProvider } from '../assets/ProceduralPartProvider.ts';
 import { StylizedMaterialFactory } from '../assets/StylizedMaterialFactory.ts';
 import { SoundEffectRig } from '../audio/SoundEffectRig.ts';
 import { BalanceSheet } from '../config/BalanceSheet.ts';
+import { DEFENSE_KIND } from '../ecs/constants.ts';
 import { IslandEcsWorld } from '../ecs/IslandEcsWorld.ts';
 import { SimulationPipeline } from '../ecs/SimulationPipeline.ts';
 import { DayNightRig } from '../engine/DayNightRig.ts';
@@ -19,13 +20,17 @@ import { LootDropSystem } from '../entities/LootDropSystem.ts';
 import { PlayerController } from '../entities/PlayerController.ts';
 import { IslandEnvironment } from '../scene/IslandEnvironment.ts';
 import {
+  BARRICADE_BUILD_COST,
   INTERACT_RANGE,
   MOUND_BORDER_PUSH,
   MOUND_PETAL_DROP,
   MOUND_SHARD_DROP,
   TOWN_HEART_DAWN_HEAL,
+  TURRET_BUILD_COST,
+  TURRET_REPAIR_COST,
 } from '../systems/constants.ts';
-import { DefenseStructureSystem } from '../systems/DefenseStructureSystem.ts';
+import { type DefenseBuildOutcome, DefenseStructureSystem } from '../systems/DefenseStructureSystem.ts';
+import { EngineerBuildQueue } from '../systems/EngineerBuildQueue.ts';
 import { InteractionResolver, type InteractionTarget } from '../systems/InteractionResolver.ts';
 import { type PlantBlockReason, PlantingSystem } from '../systems/PlantingSystem.ts';
 import { VillagerBondSystem } from '../systems/VillagerBondSystem.ts';
@@ -33,6 +38,7 @@ import { WaveCombatSystem } from '../systems/WaveCombatSystem.ts';
 import { BabylonHud } from '../ui/BabylonHud.ts';
 import { BalanceSheetDrawer } from '../ui/BalanceSheetDrawer.ts';
 import { HUD_THEME, NEXT_PHASE_MAP } from '../ui/constants.ts';
+import type { WorkshopActionKind, WorkshopPanelSnapshot } from '../ui/WorkshopPanelView.ts';
 import type { DayPhase, DollhousePlot, ResourceKey } from '../world/constants.ts';
 import { CorruptionField } from '../world/CorruptionField.ts';
 import { InventoryStore } from '../world/InventoryStore.ts';
@@ -47,6 +53,7 @@ import { TimeCycle, type TimeSnapshot } from '../world/TimeCycle.ts';
 export class GameApp {
   private static readonly MAX_DPR = 2;
   private static readonly MAX_FRAME_DT = 0.05;
+  private static readonly ENGINEER_SAFE_REPAIR_RADIUS = 5.0;
   private static readonly RESOURCE_LABELS: Record<ResourceKey, string> = {
     wood: '🪵 Wood',
     stone: '🪨 Stone',
@@ -65,8 +72,9 @@ export class GameApp {
   private readonly ecs = new IslandEcsWorld();
   private readonly balance = new BalanceSheet();
   private readonly bonds = new VillagerBondSystem(this.ecs, this.balance);
-  private readonly defenses = new DefenseStructureSystem(this.ecs, this.strip.getDefenseSlots());
+  private readonly defenses = new DefenseStructureSystem(this.ecs, this.strip.getDefenseSlots(), this.balance);
   private readonly waveCombat = new WaveCombatSystem(this.ecs, this.balance);
+  private readonly engineerQueue = new EngineerBuildQueue(this.strip.getDollhousePlots()[0]?.x ?? -12.5, this.balance);
   private readonly resolver = new InteractionResolver();
   private readonly planting = new PlantingSystem();
   private readonly input = new InputController();
@@ -201,6 +209,7 @@ export class GameApp {
       onHangOut: () => this._handleHangOut(),
       onGift: () => this._handleGift(),
       onFurnish: () => this._handleFurnish(),
+      onWorkshopAction: (slotIndex, action) => this._handleWorkshopAction(slotIndex, action),
     });
     this.hud.setOnRestart(() => this._restartIsland());
     this.hud.setOnToggleMute(() => this.hud.setMuted(this.audio.toggleMute()));
@@ -233,7 +242,9 @@ export class GameApp {
     const playerX = this.player.getX();
     if (playerEvents.stepped) this.dustPuffs.spawnBurst(playerX, 0.12, 0, 2, 0.45, 1.4);
     if (playerEvents.landed) this.dustPuffs.spawnBurst(playerX, 0.12, 0, 5, 0.9, 2.0);
-    const frame = this.pipeline.run(dt, this.elapsedSeconds, playerX);
+    const frame = this.pipeline.run(
+      dt, this.elapsedSeconds, playerX, this.bonds.getEngineerResearchLevel(),
+    );
     this._handleActions(frameInput, playerX, frame.target);
     this._notifyCollectedLoot(frame.collectedLoot);
     this._updateWorldAndHud(dt, frameInput, playerX, frame.target);
@@ -265,11 +276,16 @@ export class GameApp {
       timeSnap, this.strip.classifyZone(playerX), this.corruption.getPurityRatio(),
       this.inventory.getSnapshot(), this.waveCombat.getHeartHp(), hudEnemyCount,
     );
+    this._refreshFocusedHud(target, playerX);
+  }
+
+  private _refreshFocusedHud(target: InteractionTarget | null, playerX: number): void {
     const focusedBond = this.focusedDollhouse
       ? this.bonds.getSnapshot(this.focusedDollhouse.roleId, this.inventory)
       : null;
     this.hud.updateInteractionContext(
-      target, this.focusedDollhouse, this.planting.canPlantAt(playerX, this.inventory), focusedBond,
+      target, this.focusedDollhouse, this.planting.canPlantAt(playerX, this.inventory),
+      focusedBond, this._buildWorkshopSnapshot(),
     );
   }
 
@@ -303,6 +319,7 @@ export class GameApp {
     this._stepRoadPropImpacts(dt);
     if (res.defenseDestroyed) this._syncAllDefenseVisuals('Defense Destroyed!');
     this.environment.setDefenderPatrolX(res.defenderPatrolX);
+    this._stepEngineerQueue(dt);
     this.enemyVisuals.update(this.elapsedSeconds, dt);
     this.dustPuffs.update(dt);
     if (res.gameOver) this.audio.play('gameOver');
@@ -365,25 +382,122 @@ export class GameApp {
   }
 
   private _interactDefense(slotIndex: number): void {
-    const outcome = this.defenses.interactSlot(slotIndex, this.inventory);
+    const resLv = this.bonds.getEngineerResearchLevel();
+    const state = this.defenses.getSlotState(slotIndex);
+    const outcome = this.defenses.interactSlot(slotIndex, this.inventory, resLv);
     if (!outcome) {
-      this.hud.showToast('Need Wood/Stone/Shards', HUD_THEME.accentAmber);
+      this._showDefenseBlockToast(state.kind !== DEFENSE_KIND.EMPTY && state.hp >= state.maxHp, state.level, resLv);
       return;
     }
-    this.environment.syncDefenseVisual(outcome.slotIndex, outcome.x, outcome.level);
+    this.environment.syncDefenseVisual(outcome.slotIndex, outcome.x, outcome.level, outcome.kind);
     this.audio.play('build');
-    const label = outcome.action === 'built'
-      ? 'Turret Built!'
-      : outcome.action === 'upgraded'
-        ? 'Turret Lv 2!'
-        : 'Turret Repaired!';
-    this.hud.showToast(label, HUD_THEME.accentSage);
+    this.hud.showToast(this._formatDefenseOutcomeLabel(outcome), HUD_THEME.accentSage);
+  }
+
+  private _showDefenseBlockToast(fullOccupied: boolean, level: number, resLv: number): void {
+    if (fullOccupied && level >= 3) {
+      this.hud.showToast('Defense Max Lv 3', HUD_THEME.accentAmber);
+      return;
+    }
+    const locked = fullOccupied && level < 3 && level >= resLv;
+    this.hud.showToast(locked ? `Need Pip Bond Lv ${level + 1}` : 'Need Wood/Stone/Shards', HUD_THEME.accentAmber);
+  }
+
+  private _handleWorkshopAction(slotIndex: number, action: WorkshopActionKind): void {
+    const outcome = this._executeWorkshopAction(slotIndex, action);
+    if (!outcome) {
+      this.hud.showToast('Need Wood/Stone/Shards or Pip Lv', HUD_THEME.accentAmber);
+      return;
+    }
+    this.environment.syncDefenseVisual(outcome.slotIndex, outcome.x, outcome.level, outcome.kind);
+    if (action === 'salvage') this.engineerQueue.cancel(slotIndex);
+    else this.engineerQueue.enqueue(outcome.slotIndex, outcome.x);
+    this.audio.play('build');
+    this.hud.showToast(this._formatDefenseOutcomeLabel(outcome), HUD_THEME.accentSage);
+    this._refreshDollhouseHud();
+  }
+
+  private _refreshDollhouseHud(): void {
+    if (!this.focusedDollhouse) return;
+    const target: InteractionTarget = {
+      type: 'dollhouse',
+      plot: this.focusedDollhouse,
+      icon: '🏠',
+      label: this.focusedDollhouse.npcName,
+    };
+    this._refreshFocusedHud(target, this.player.getX());
+  }
+
+  private _executeWorkshopAction(slotIndex: number, action: WorkshopActionKind): DefenseBuildOutcome | null {
+    const resLv = this.bonds.getEngineerResearchLevel();
+    if (action === 'barricade') return this.defenses.buildStructure(slotIndex, DEFENSE_KIND.BARRICADE, this.inventory);
+    if (action === 'turret') return this.defenses.buildStructure(slotIndex, DEFENSE_KIND.TURRET, this.inventory);
+    if (action === 'upgrade') return this.defenses.upgradeSlot(slotIndex, this.inventory, resLv);
+    if (action === 'repair') return this.defenses.repairSlot(slotIndex, this.inventory);
+    return this.defenses.salvageSlot(slotIndex, this.inventory);
+  }
+
+  private _formatDefenseOutcomeLabel(outcome: DefenseBuildOutcome): string {
+    const noun = outcome.kind === DEFENSE_KIND.BARRICADE ? 'Wall' : 'Turret';
+    if (outcome.action === 'salvaged') return 'Plinth Salvaged (+🪵1 🪨1)';
+    if (outcome.action === 'repaired') return `${noun} Repaired!`;
+    if (outcome.action === 'upgraded') return `${noun} Lv ${outcome.level}!`;
+    return `${noun} Built!`;
+  }
+
+  private _buildWorkshopSnapshot(): WorkshopPanelSnapshot | null {
+    if (this.focusedDollhouse?.roleId !== 'engineer') return null;
+    const slots = this.defenses.getAllSlotStates();
+    return {
+      researchLevel: this.bonds.getEngineerResearchLevel(),
+      slots,
+      canAffordBarricade: this.inventory.canAfford(BARRICADE_BUILD_COST),
+      canAffordTurret: this.inventory.canAfford(TURRET_BUILD_COST),
+      canAffordRepair: this.inventory.canAfford(TURRET_REPAIR_COST),
+      canAffordUpgradeBySlot: slots.map((s) => this.inventory.canAfford(this.defenses.getUpgradeCostForSlot(s.slotIndex))),
+    };
+  }
+
+  private _stepEngineerQueue(dt: number): void {
+    if (!this.engineerQueue.isBusy()) this._dispatchAutoRepair();
+    const step = this.engineerQueue.step(dt);
+    this.environment.setEngineerPatrolX(step.patrolX);
+    if (step.hammerDir === 0 || step.completedX === null || step.completedSlot === null) return;
+    this.environment.triggerNpcAttack('engineer', step.hammerDir);
+    this.dustPuffs.spawnBurst(step.completedX, 0.35, 1.3, 6, 1.0, 2.2);
+    this.audio.play('build');
+    if (step.completedKind === 'repair') this._applyEngineerAutoRepair(step.completedSlot);
+  }
+
+  private _dispatchAutoRepair(): void {
+    const pipX = this.engineerQueue.getCurrentX();
+    let best: { slotIndex: number; x: number } | null = null;
+    let bestDist = Infinity;
+    for (const slot of this.defenses.getAllSlotStates()) {
+      if (slot.kind === DEFENSE_KIND.EMPTY || slot.hp >= slot.maxHp) continue;
+      if (this.waveCombat.hasEnemyNear(slot.x, GameApp.ENGINEER_SAFE_REPAIR_RADIUS)) continue;
+      const dist = Math.abs(slot.x - pipX);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = slot;
+      }
+    }
+    if (best) this.engineerQueue.enqueue(best.slotIndex, best.x, 'repair');
+  }
+
+  private _applyEngineerAutoRepair(slotIndex: number): void {
+    const fixed = this.defenses.repairSlotFree(slotIndex);
+    if (!fixed) return;
+    const noun = fixed.kind === DEFENSE_KIND.BARRICADE ? 'Wall' : 'Turret';
+    this.hud.showToast(`Pip Repaired ${noun}!`, HUD_THEME.accentSage);
+    this._refreshDollhouseHud();
   }
 
   private _syncAllDefenseVisuals(toastMessage?: string): void {
     this.strip.getDefenseSlots().forEach((slotX, idx) => {
       const slot = this.defenses.getSlotState(idx);
-      this.environment.syncDefenseVisual(idx, slotX, slot.level);
+      if (slot.kind === DEFENSE_KIND.EMPTY) this.engineerQueue.cancel(idx);
+      this.environment.syncDefenseVisual(idx, slotX, slot.level, slot.kind);
     });
     if (toastMessage) this.hud.showToast(toastMessage, HUD_THEME.accentNeon);
   }
@@ -489,6 +603,9 @@ export class GameApp {
   private _checkPhaseTransitions(phase: DayPhase, dayNumber: number): void {
     if (phase !== this.lastPhase) {
       if (phase === 'night') this.audio.play('nightDrum');
+      if (phase === 'dawn' && this.defenses.healSmartBarricadesAtDawn() > 0) {
+        this._syncAllDefenseVisuals('Rune Walls Regenerated!');
+      }
       this.lastPhase = phase;
     }
     this._checkDayRegrowth(dayNumber);
@@ -513,7 +630,11 @@ export class GameApp {
   }
 
   private _restartIsland(): void {
+    this.focusedDollhouse = null;
     this.waveCombat.reset();
+    this.engineerQueue.reset();
+    this.environment.setEngineerPatrolX(null);
+    this.environment.setDefenderPatrolX(null);
     this.defenses.resetAll();
     this._syncAllDefenseVisuals();
     this.hud.setGameOver(false);

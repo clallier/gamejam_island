@@ -27,6 +27,10 @@ export type BalanceKey =
   | 'turretRangeTiles'
   | 'turretDamage'
   | 'turretCooldownSec'
+  | 'barricadeBaseHp'
+  | 'barricadeThornsDamage'
+  | 'barricadePulseKnockbackTiles'
+  | 'smartTurretSplashTiles'
   | 'crateImpactRadiusTiles'
   | 'crateKnockbackTiles'
   | 'spriteSpeedTiles'
@@ -95,6 +99,10 @@ export const BALANCE_FIELDS: readonly BalanceFieldSpec[] = [
   { key: 'turretRangeTiles', group: 'Defenses', label: 'Turret Range', unit: 'tiles', min: 2.0, max: 10.0, step: 0.2, defaultValue: 5.6, isSpatial: true },
   { key: 'turretDamage', group: 'Defenses', label: 'Turret Damage', unit: 'HP', min: 2, max: 50, step: 1, defaultValue: 12, isSpatial: false },
   { key: 'turretCooldownSec', group: 'Defenses', label: 'Turret Cooldown', unit: 'sec', min: 0.2, max: 3.0, step: 0.05, defaultValue: 1.15, isSpatial: false },
+  { key: 'barricadeBaseHp', group: 'Defenses', label: 'Barricade Base HP', unit: 'HP', min: 40, max: 300, step: 10, defaultValue: 110, isSpatial: false },
+  { key: 'barricadeThornsDamage', group: 'Defenses', label: 'Wall Thorns Dmg', unit: 'HP', min: 0, max: 30, step: 1, defaultValue: 8, isSpatial: false },
+  { key: 'barricadePulseKnockbackTiles', group: 'Defenses', label: 'Rune Wall Pulse', unit: 'tiles', min: 0, max: 3.0, step: 0.1, defaultValue: 1.0, isSpatial: true },
+  { key: 'smartTurretSplashTiles', group: 'Defenses', label: 'Smart Coil Splash', unit: 'tiles', min: 0.5, max: 4.0, step: 0.1, defaultValue: 1.8, isSpatial: true },
   { key: 'crateImpactRadiusTiles', group: 'Defenses', label: 'Crate Hit Radius', unit: 'tiles', min: 0.2, max: 1.5, step: 0.05, defaultValue: 0.5, isSpatial: true },
   { key: 'crateKnockbackTiles', group: 'Defenses', label: 'Crate Knockback', unit: 'tiles', min: 0, max: 3.0, step: 0.1, defaultValue: 1.2, isSpatial: true },
   { key: 'spriteSpeedTiles', group: 'Enemies', label: 'Sprite Speed', unit: 'tiles/s', min: 0.3, max: 4.0, step: 0.1, defaultValue: 1.0, isSpatial: true },

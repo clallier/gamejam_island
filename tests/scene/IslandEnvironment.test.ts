@@ -12,6 +12,7 @@ import { ModularAssemblyFactory } from '../../src/assets/ModularAssemblyFactory.
 import { ProceduralPartProvider } from '../../src/assets/ProceduralPartProvider.ts';
 import { StylizedMaterialFactory } from '../../src/assets/StylizedMaterialFactory.ts';
 import { BalanceSheet } from '../../src/config/BalanceSheet.ts';
+import { DEFENSE_KIND } from '../../src/ecs/constants.ts';
 import { IslandEcsWorld } from '../../src/ecs/IslandEcsWorld.ts';
 import { DayNightRig } from '../../src/engine/DayNightRig.ts';
 import { PhysicsWorld } from '../../src/engine/PhysicsWorld.ts';
@@ -119,13 +120,16 @@ describe('IslandEnvironment', () => {
     env.syncGridRuler();
     expect(gridMarker.isVisible).toBe(true);
 
-    env.syncDefenseVisual(0, -26, 1);
+    env.syncDefenseVisual(0, -26, 1, DEFENSE_KIND.TURRET);
     expect(scene.getTransformNodeByName('defense-slot-0')!.scaling.x).toBe(1);
-    env.syncDefenseVisual(0, -26, 2);
-    expect(scene.getTransformNodeByName('defense-slot-0')!.scaling.x).toBeCloseTo(1.2, 4);
+    env.syncDefenseVisual(0, -26, 2, DEFENSE_KIND.TURRET);
+    expect(scene.getTransformNodeByName('defense-slot-0')!.scaling.x).toBeCloseTo(1.18, 4);
+    env.syncDefenseVisual(0, -26, 3, DEFENSE_KIND.BARRICADE);
+    expect(scene.getTransformNodeByName('defense-slot-0')!.scaling.x).toBeCloseTo(1.34, 4);
     env.syncDefenseVisual(0, -26, 0);
     expect(scene.getTransformNodeByName('defense-slot-0')).toBeNull();
     env.setDefenderPatrolX(-15);
+    env.setEngineerPatrolX(-20);
     env.celebrateNpc('defender');
     env.update(1.0, 0.1, 0, corruption);
   });
